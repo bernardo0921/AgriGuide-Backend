@@ -32,9 +32,9 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'agriguide-backend-79j2.onrender.com').split(',')
-
-
+# In settings.py, find ALLOWED_HOSTS and replace with:
+# In settings.py, find ALLOWED_HOSTS and replace with:
+ALLOWED_HOSTS = ["192.168.100.7", "127.0.0.1", "localhost", ".onrender.com"]
 # Application definition
 
 INSTALLED_APPS = [
