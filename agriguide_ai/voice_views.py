@@ -1,73 +1,29 @@
-# voice_views.py - Voice chat with Gemini TTS
+# voice_views.py - Voice chat with Hugging Face + Edge TTS (Free, No Quota)
 import os
 import uuid
 import struct
 import mimetypes
+import asyncio
+import base64
 from django.http import FileResponse, JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-
-# Try to import the newer `google.genai` package first; if it's not
-# available (for example the environment only has `google-generativeai`),
-# fall back to `google.generativeai` and provide a small compatibility
-# shim so the rest of the code can continue to call
-# `client.models.generate_content_stream(...)`.
-try:
-    import google.genai as genai
-    from google.genai import types
-    _GENAI_IMPL = "genai"
-except Exception:
-    import google.generativeai as genai
-    from google.generativeai import types
-    _GENAI_IMPL = "generativeai"
+import requests
+import edge_tts
 from .models import ChatSession, ChatMessage
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 import tempfile
+import io
 
-# Configure Gemini API
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY not found in environment variables")
+# Hugging Face model for text generation (free, no quota)
+HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1"
+HF_API_TOKEN = os.environ.get('HF_API_TOKEN')  # Optional: use free tier without token or provide yours
 
-# Initialize client depending on which package is available.
-if _GENAI_IMPL == "genai":
-    client = genai.Client(api_key=GEMINI_API_KEY)
-else:
-    # google-generativeai uses a different top-level API. Configure it
-    # and provide a tiny shim so existing calls to
-    # `client.models.generate_content_stream(...)` will work.
-    genai.configure(api_key=GEMINI_API_KEY)
-
-    class _ModelsShim:
-        def __init__(self, genai_module):
-            self._genai = genai_module
-
-        def generate_content_stream(self, model, contents=None, config=None, **kwargs):
-            # Map the older config object (if any) to the newer generation_config
-            gen_config = None
-            try:
-                if config is not None:
-                    # Attempt to extract a few common fields
-                    gen_config = {}
-                    if hasattr(config, 'temperature'):
-                        gen_config['temperature'] = getattr(config, 'temperature')
-                    if hasattr(config, 'max_output_tokens'):
-                        gen_config['max_output_tokens'] = getattr(config, 'max_output_tokens')
-                    if hasattr(config, 'candidate_count'):
-                        gen_config['candidate_count'] = getattr(config, 'candidate_count')
-            except Exception:
-                gen_config = None
-
-            gen_model = self._genai.GenerativeModel(model)
-            # The generativeai API uses `generation_config` and `stream=True`.
-            response = gen_model.generate_content(contents or [], generation_config=gen_config, stream=True, **kwargs)
-            for chunk in response:
-                yield chunk
-
-    client = type("ClientShim", (), {"models": _ModelsShim(genai)})()
+# Edge TTS voice (free, built-in, no key needed)
+EDGE_TTS_VOICE = "en-US-AriaNeural"  # Available voices: en-US-GuyNeural, en-US-AriaNeural, en-GB-SoniaNeural, etc.
 
 # System instruction for voice chat
 VOICE_SYSTEM_INSTRUCTION = """
@@ -80,75 +36,76 @@ You are AgriGuide AI, a friendly agricultural advisor. Keep responses concise an
 """
 
 
-def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
-    """Convert audio data to WAV format with proper headers"""
-    parameters = parse_audio_mime_type(mime_type)
-    bits_per_sample = parameters["bits_per_sample"]
-    sample_rate = parameters["rate"]
-    num_channels = 1
-    data_size = len(audio_data)
-    bytes_per_sample = bits_per_sample // 8
-    block_align = num_channels * bytes_per_sample
-    byte_rate = sample_rate * block_align
-    chunk_size = 36 + data_size
-
-    header = struct.pack(
-        "<4sI4s4sIHHIIHH4sI",
-        b"RIFF",
-        chunk_size,
-        b"WAVE",
-        b"fmt ",
-        16,
-        1,
-        num_channels,
-        sample_rate,
-        byte_rate,
-        block_align,
-        bits_per_sample,
-        b"data",
-        data_size
-    )
-    return header + audio_data
+async def generate_speech(text: str, voice: str = EDGE_TTS_VOICE) -> bytes:
+    """Generate speech from text using Edge TTS (free, no quota)"""
+    try:
+        output = io.BytesIO()
+        communicate = edge_tts.Communicate(text, voice)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                output.write(chunk["data"])
+        output.seek(0)
+        return output.getvalue()
+    except Exception as e:
+        print(f"Error generating speech: {str(e)}")
+        raise
 
 
-def parse_audio_mime_type(mime_type: str) -> dict:
-    """Parse bits per sample and rate from audio MIME type"""
-    bits_per_sample = 16
-    rate = 24000
+def generate_text_hf(prompt: str) -> str:
+    """Generate text using Hugging Face Mistral model (free, no quota)"""
+    try:
+        headers = {}
+        if HF_API_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
 
-    parts = mime_type.split(";")
-    for param in parts:
-        param = param.strip()
-        if param.lower().startswith("rate="):
-            try:
-                rate_str = param.split("=", 1)[1]
-                rate = int(rate_str)
-            except (ValueError, IndexError):
-                pass
-        elif param.startswith("audio/L"):
-            try:
-                bits_per_sample = int(param.split("L", 1)[1])
-            except (ValueError, IndexError):
-                pass
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_length": 150,
+                "temperature": 0.7,
+            }
+        }
 
-    return {"bits_per_sample": bits_per_sample, "rate": rate}
+        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            print(f"HF API error: {response.status_code} - {response.text}")
+            raise Exception(f"Hugging Face API error: {response.status_code}")
+
+        result = response.json()
+        
+        # Extract text from response
+        if isinstance(result, list) and len(result) > 0:
+            generated_text = result[0].get("generated_text", "")
+            # Remove the prompt from the generated text
+            text_response = generated_text.replace(prompt, "").strip()
+            return text_response if text_response else "I'm having trouble generating a response. Please try again."
+        
+        return "I'm having trouble generating a response. Please try again."
+    
+    except Exception as e:
+        print(f"Error generating text: {str(e)}")
+        raise
+
+
+
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def voice_chat(request):
     """
-    Voice chat endpoint - Returns audio response
+    Voice chat endpoint - Returns audio response using free Hugging Face + Edge TTS
     Expected JSON: {
         "message": "user text message",
         "session_id": "optional_session_id",
-        "voice": "Zephyr" (optional, default: "Zephyr")
+        "voice": "en-US-AriaNeural" (optional, default: "en-US-AriaNeural")
     }
     """
     try:
         message = request.data.get('message', '').strip()
         session_id = request.data.get('session_id')
-        voice_name = request.data.get('voice', 'Zephyr')  # Zephyr, Puck, Charon, Kore, Fenrir, Aoede
+        voice_name = request.data.get('voice', EDGE_TTS_VOICE)
         
         if not message:
             return Response({
@@ -174,10 +131,7 @@ def voice_chat(request):
                 session_id=session_id
             )
         
-        # Get conversation history (last 5 messages). Django QuerySets
-        # do not support negative indexing (e.g. `qs[-5:]`). Use a
-        # descending slice to fetch the most recent items and reverse
-        # them to restore chronological order.
+        # Get conversation history (last 5 messages)
         last_messages_qs = ChatMessage.objects.filter(
             session=chat_session
         ).order_by('-created_at')[:5]
@@ -194,68 +148,8 @@ def voice_chat(request):
         # Combine system instruction with context
         prompt = f"{VOICE_SYSTEM_INSTRUCTION}\n\nConversation History:\n{conversation_context}\n\nUser: {message}\n\nRespond naturally and concisely:"
         
-        # Configure TTS generation. The newer `google.genai` exposes rich
-        # typed helpers (`types.Content`, `types.Part`, `types.GenerateContentConfig`,
-        # `types.SpeechConfig`, etc.). The older `google.generativeai` does not,
-        # so build a simple dict structure compatible with it when falling back.
-        if _GENAI_IMPL == "genai":
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=prompt)]
-                )
-            ]
-
-            generate_config = types.GenerateContentConfig(
-                temperature=0.7,
-                response_modalities=["TEXT", "AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=voice_name
-                        )
-                    )
-                )
-            )
-        else:
-            # For google.generativeai fallback, provide a minimal contents and
-            # generation_config dict. Advanced speech settings may not be
-            # supported exactly the same way; this allows the call to succeed.
-            contents = [{
-                "role": "user",
-                "parts": [{"text": prompt}],
-            }]
-
-            generate_config = {
-                "temperature": 0.7,
-                # Keep output tokens modest; adjust if needed.
-                "max_output_tokens": 1024,
-            }
-        
-        # Generate response with audio
-        audio_chunks = []
-        text_response = ""
-        
-        for chunk in client.models.generate_content_stream(
-            model="gemini-2.0-flash-exp",
-            contents=contents,
-            config=generate_config
-        ):
-            if chunk.candidates and chunk.candidates[0].content.parts:
-                part = chunk.candidates[0].content.parts[0]
-                
-                # Collect text
-                if hasattr(part, 'text') and part.text:
-                    text_response += part.text
-                
-                # Collect audio
-                if part.inline_data and part.inline_data.data:
-                    audio_chunks.append(part.inline_data.data)
-        
-        if not text_response:
-            return Response({
-                'error': 'No response generated'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Generate text response using Hugging Face (free, no quota)
+        text_response = generate_text_hf(prompt)
         
         # Save messages to database
         ChatMessage.objects.create(
@@ -272,38 +166,29 @@ def voice_chat(request):
         
         chat_session.save()
         
-        # Combine audio chunks
-        if audio_chunks:
-            combined_audio = b''.join(audio_chunks)
+        # Generate speech using Edge TTS (free, unlimited)
+        try:
+            audio_data = asyncio.run(generate_speech(text_response, voice_name))
             
-            # Convert to WAV if needed
-            mime_type = "audio/L16;rate=24000"
-            wav_data = convert_to_wav(combined_audio, mime_type)
+            # Return JSON response with audio in base64
+            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
             
-            # Save audio file temporarily or to S3
-            audio_filename = f"voice_response_{uuid.uuid4()}.wav"
-            
-            # Option 1: Save to temporary file and return
-            temp_dir = tempfile.gettempdir()
-            audio_path = os.path.join(temp_dir, audio_filename)
-            
-            with open(audio_path, 'wb') as f:
-                f.write(wav_data)
-            
-            # Return JSON response with audio file info
             return Response({
                 'session_id': session_id,
                 'text_response': text_response,
-                'audio_url': f'/api/voice/audio/{audio_filename}',
+                'audio_base64': audio_base64,
+                'audio_format': 'wav',
                 'voice_used': voice_name
             })
-        else:
-            # No audio generated, return text only
+        except Exception as e:
+            print(f"Error generating speech: {str(e)}")
+            # Return text-only response if speech generation fails
             return Response({
                 'session_id': session_id,
                 'text_response': text_response,
-                'audio_url': None,
-                'voice_used': voice_name
+                'audio_base64': None,
+                'voice_used': voice_name,
+                'warning': 'Could not generate audio, returning text only'
             })
             
     except Exception as e:
@@ -319,20 +204,20 @@ def voice_chat(request):
 @permission_classes([IsAuthenticated])
 def voice_chat_stream(request):
     """
-    Streaming voice chat - Returns audio in base64 chunks
+    Streaming voice chat - Returns audio in base64
     Better for real-time responses
     """
     try:
         message = request.data.get('message', '').strip()
         session_id = request.data.get('session_id')
-        voice_name = request.data.get('voice', 'Zephyr')
+        voice_name = request.data.get('voice', EDGE_TTS_VOICE)
         
         if not message:
             return Response({
                 'error': 'Message is required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get or create session (same as above)
+        # Get or create session
         if session_id:
             try:
                 chat_session = ChatSession.objects.get(
@@ -354,65 +239,18 @@ def voice_chat_stream(request):
         # Build prompt
         prompt = f"{VOICE_SYSTEM_INSTRUCTION}\n\n{message}"
         
-        if _GENAI_IMPL == "genai":
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=prompt)]
-                )
-            ]
-
-            generate_config = types.GenerateContentConfig(
-                temperature=0.7,
-                response_modalities=["TEXT", "AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=voice_name
-                        )
-                    )
-                )
-            )
-        else:
-            contents = [{
-                "role": "user",
-                "parts": [{"text": prompt}],
-            }]
-
-            generate_config = {
-                "temperature": 0.7,
-                "max_output_tokens": 1024,
-            }
-        
-        # Generate and collect
-        audio_chunks = []
-        text_response = ""
-        
-        for chunk in client.models.generate_content_stream(
-            model="gemini-2.0-flash-exp",
-            contents=contents,
-            config=generate_config
-        ):
-            if chunk.candidates and chunk.candidates[0].content.parts:
-                part = chunk.candidates[0].content.parts[0]
-                
-                if hasattr(part, 'text') and part.text:
-                    text_response += part.text
-                
-                if part.inline_data and part.inline_data.data:
-                    audio_chunks.append(part.inline_data.data)
+        # Generate text response
+        text_response = generate_text_hf(prompt)
         
         # Save to database
         ChatMessage.objects.create(session=chat_session, role='user', message=message)
         ChatMessage.objects.create(session=chat_session, role='model', message=text_response)
         chat_session.save()
         
-        # Convert audio to WAV
-        if audio_chunks:
-            import base64
-            combined_audio = b''.join(audio_chunks)
-            wav_data = convert_to_wav(combined_audio, "audio/L16;rate=24000")
-            audio_base64 = base64.b64encode(wav_data).decode('utf-8')
+        # Generate speech
+        try:
+            audio_data = asyncio.run(generate_speech(text_response, voice_name))
+            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
             
             return Response({
                 'session_id': session_id,
@@ -421,12 +259,14 @@ def voice_chat_stream(request):
                 'audio_format': 'wav',
                 'voice_used': voice_name
             })
-        else:
+        except Exception as e:
+            print(f"Error generating speech: {str(e)}")
             return Response({
                 'session_id': session_id,
                 'text_response': text_response,
                 'audio_base64': None,
-                'voice_used': voice_name
+                'voice_used': voice_name,
+                'warning': 'Could not generate audio'
             })
             
     except Exception as e:
@@ -441,14 +281,13 @@ def voice_chat_stream(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_available_voices(request):
-    """Return list of available voice options"""
+    """Return list of available Edge TTS voices (free, no quota)"""
     voices = [
-        {'name': 'Zephyr', 'description': 'Warm and friendly', 'gender': 'neutral'},
-        {'name': 'Puck', 'description': 'Energetic and bright', 'gender': 'neutral'},
-        {'name': 'Charon', 'description': 'Deep and authoritative', 'gender': 'neutral'},
-        {'name': 'Kore', 'description': 'Gentle and calm', 'gender': 'neutral'},
-        {'name': 'Fenrir', 'description': 'Strong and clear', 'gender': 'neutral'},
-        {'name': 'Aoede', 'description': 'Melodic and soothing', 'gender': 'neutral'},
+        {'name': 'en-US-AriaNeural', 'description': 'Friendly female voice', 'language': 'English (US)'},
+        {'name': 'en-US-GuyNeural', 'description': 'Professional male voice', 'language': 'English (US)'},
+        {'name': 'en-GB-SoniaNeural', 'description': 'British female voice', 'language': 'English (UK)'},
+        {'name': 'en-AU-NatashaNeural', 'description': 'Australian female voice', 'language': 'English (AU)'},
+        {'name': 'en-IN-NeerjaNeural', 'description': 'Indian female voice', 'language': 'English (IN)'},
     ]
     
     return Response({'voices': voices})
