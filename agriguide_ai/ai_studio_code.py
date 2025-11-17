@@ -6,7 +6,7 @@ import mimetypes
 import os
 import re
 import struct
-from google import genai
+import google.genai as genai
 from google.genai import types
 
 
