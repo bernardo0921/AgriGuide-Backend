@@ -6,8 +6,16 @@ import mimetypes
 import os
 import re
 import struct
-import google.genai as genai
-from google.genai import types
+
+# Compatibility import: prefer `google.genai`, fall back to `google.generativeai`.
+try:
+    import google.genai as genai
+    from google.genai import types
+    _GENAI_IMPL = "genai"
+except Exception:
+    import google.generativeai as genai
+    from google.generativeai import types
+    _GENAI_IMPL = "generativeai"
 
 
 def save_binary_file(file_name, data):
@@ -18,9 +26,23 @@ def save_binary_file(file_name, data):
 
 
 def generate():
-    client = genai.Client(
-        api_key=os.environ.get("GEMINI_API_KEY"),
-    )
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY not found in environment variables")
+
+    if _GENAI_IMPL == "genai":
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    else:
+        genai.configure(api_key=GEMINI_API_KEY)
+        class _ModelsShim:
+            def __init__(self, gm):
+                self._gm = gm
+            def generate_content_stream(self, model, contents=None, config=None, **kwargs):
+                gen_model = self._gm.GenerativeModel(model)
+                response = gen_model.generate_content(contents or [], generation_config=None, stream=True, **kwargs)
+                for chunk in response:
+                    yield chunk
+        client = type("ClientShim", (), {"models": _ModelsShim(genai)})()
 
     model = "gemini-2.5-flash-preview-tts"
     contents = [

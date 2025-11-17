@@ -8,8 +8,20 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-import google.genai as genai
-from google.genai import types
+
+# Try to import the newer `google.genai` package first; if it's not
+# available (for example the environment only has `google-generativeai`),
+# fall back to `google.generativeai` and provide a small compatibility
+# shim so the rest of the code can continue to call
+# `client.models.generate_content_stream(...)`.
+try:
+    import google.genai as genai
+    from google.genai import types
+    _GENAI_IMPL = "genai"
+except Exception:
+    import google.generativeai as genai
+    from google.generativeai import types
+    _GENAI_IMPL = "generativeai"
 from .models import ChatSession, ChatMessage
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -20,8 +32,42 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
 
-# Initialize Gemini client
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Initialize client depending on which package is available.
+if _GENAI_IMPL == "genai":
+    client = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    # google-generativeai uses a different top-level API. Configure it
+    # and provide a tiny shim so existing calls to
+    # `client.models.generate_content_stream(...)` will work.
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    class _ModelsShim:
+        def __init__(self, genai_module):
+            self._genai = genai_module
+
+        def generate_content_stream(self, model, contents=None, config=None, **kwargs):
+            # Map the older config object (if any) to the newer generation_config
+            gen_config = None
+            try:
+                if config is not None:
+                    # Attempt to extract a few common fields
+                    gen_config = {}
+                    if hasattr(config, 'temperature'):
+                        gen_config['temperature'] = getattr(config, 'temperature')
+                    if hasattr(config, 'max_output_tokens'):
+                        gen_config['max_output_tokens'] = getattr(config, 'max_output_tokens')
+                    if hasattr(config, 'candidate_count'):
+                        gen_config['candidate_count'] = getattr(config, 'candidate_count')
+            except Exception:
+                gen_config = None
+
+            gen_model = self._genai.GenerativeModel(model)
+            # The generativeai API uses `generation_config` and `stream=True`.
+            response = gen_model.generate_content(contents or [], generation_config=gen_config, stream=True, **kwargs)
+            for chunk in response:
+                yield chunk
+
+    client = type("ClientShim", (), {"models": _ModelsShim(genai)})()
 
 # System instruction for voice chat
 VOICE_SYSTEM_INSTRUCTION = """
