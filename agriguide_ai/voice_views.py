@@ -174,14 +174,20 @@ def voice_chat(request):
                 session_id=session_id
             )
         
-        # Get conversation history
-        history_messages = ChatMessage.objects.filter(
+        # Get conversation history (last 5 messages). Django QuerySets
+        # do not support negative indexing (e.g. `qs[-5:]`). Use a
+        # descending slice to fetch the most recent items and reverse
+        # them to restore chronological order.
+        last_messages_qs = ChatMessage.objects.filter(
             session=chat_session
-        ).order_by('created_at')
-        
+        ).order_by('-created_at')[:5]
+
+        # Convert to list and reverse to get oldest->newest ordering
+        last_messages = list(last_messages_qs)[::-1]
+
         # Build conversation history for context
         conversation_context = ""
-        for msg in history_messages[-5:]:  # Last 5 messages for context
+        for msg in last_messages:
             role = "User" if msg.role == "user" else "Assistant"
             conversation_context += f"{role}: {msg.message}\n"
         
