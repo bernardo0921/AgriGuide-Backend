@@ -52,40 +52,48 @@ async def generate_speech(text: str, voice: str = EDGE_TTS_VOICE) -> bytes:
 
 
 def generate_text_hf(prompt: str) -> str:
-    """Generate text using Hugging Face Mistral model (free, no quota)"""
-    try:
-        headers = {}
-        if HF_API_TOKEN:
-            headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
-
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_length": 150,
-                "temperature": 0.7,
-            }
+    """Generate text using Hugging Face Inference API"""
+    api_url = "https://router.huggingface.co/hf-inference/mistralai/Mistral-7B-Instruct-v0.1"
+    
+    hf_token = os.getenv('HF_API_TOKEN')
+    headers = {
+        "Authorization": f"Bearer {hf_token}" if hf_token else "",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 200,
+            "temperature": 0.7,
         }
-
-        response = requests.post(HF_API_URL, json=payload, headers=headers, timeout=30)
+    }
+    
+    try:
+        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code == 410:
+            raise Exception(f"Hugging Face API error: {response.status_code} - {response.text}")
+        
+        if response.status_code == 429:
+            raise Exception(f"Rate limited by Hugging Face. Please retry in a few moments.")
         
         if response.status_code != 200:
-            print(f"HF API error: {response.status_code} - {response.text}")
             raise Exception(f"Hugging Face API error: {response.status_code}")
-
+        
         result = response.json()
         
-        # Extract text from response
         if isinstance(result, list) and len(result) > 0:
-            generated_text = result[0].get("generated_text", "")
-            # Remove the prompt from the generated text
-            text_response = generated_text.replace(prompt, "").strip()
-            return text_response if text_response else "I'm having trouble generating a response. Please try again."
+            return result[0].get("generated_text", "").strip()
+        elif isinstance(result, dict):
+            return result.get("generated_text", "").strip()
         
-        return "I'm having trouble generating a response. Please try again."
+        return "Unable to generate response"
     
+    except requests.exceptions.Timeout:
+        raise Exception("Hugging Face API request timed out")
     except Exception as e:
-        print(f"Error generating text: {str(e)}")
-        raise
+        raise Exception(f"Hugging Face API error: {str(e)}")
 
 
 
