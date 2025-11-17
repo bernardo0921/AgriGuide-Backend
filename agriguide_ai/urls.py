@@ -123,8 +123,8 @@ urlpatterns = [
          name='track_share'),
 
      # Voice chat endpoints
-    path('voice/chat/', voice_views.voice_chat, name='voice_chat'),
-    path('voice/chat/stream/', voice_views.voice_chat_stream, name='voice_chat_stream'),
-    path('voice/voices/', voice_views.get_available_voices, name='available_voices'),
+    path('qpi/voice/chat/', voice_views.voice_chat, name='voice_chat'),
+    path('api/voice/chat/stream/', voice_views.voice_chat_stream, name='voice_chat_stream'),
+    path('api/voice/voices/', voice_views.get_available_voices, name='available_voices'),
 
 ]
