@@ -194,25 +194,43 @@ def voice_chat(request):
         # Combine system instruction with context
         prompt = f"{VOICE_SYSTEM_INSTRUCTION}\n\nConversation History:\n{conversation_context}\n\nUser: {message}\n\nRespond naturally and concisely:"
         
-        # Configure TTS generation
-        contents = [
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=prompt)]
-            )
-        ]
-        
-        generate_config = types.GenerateContentConfig(
-            temperature=0.7,
-            response_modalities=["TEXT", "AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=voice_name
+        # Configure TTS generation. The newer `google.genai` exposes rich
+        # typed helpers (`types.Content`, `types.Part`, `types.GenerateContentConfig`,
+        # `types.SpeechConfig`, etc.). The older `google.generativeai` does not,
+        # so build a simple dict structure compatible with it when falling back.
+        if _GENAI_IMPL == "genai":
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)]
+                )
+            ]
+
+            generate_config = types.GenerateContentConfig(
+                temperature=0.7,
+                response_modalities=["TEXT", "AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice_name
+                        )
                     )
                 )
             )
-        )
+        else:
+            # For google.generativeai fallback, provide a minimal contents and
+            # generation_config dict. Advanced speech settings may not be
+            # supported exactly the same way; this allows the call to succeed.
+            contents = [{
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }]
+
+            generate_config = {
+                "temperature": 0.7,
+                # Keep output tokens modest; adjust if needed.
+                "max_output_tokens": 1024,
+            }
         
         # Generate response with audio
         audio_chunks = []
@@ -336,24 +354,35 @@ def voice_chat_stream(request):
         # Build prompt
         prompt = f"{VOICE_SYSTEM_INSTRUCTION}\n\n{message}"
         
-        contents = [
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=prompt)]
-            )
-        ]
-        
-        generate_config = types.GenerateContentConfig(
-            temperature=0.7,
-            response_modalities=["TEXT", "AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=voice_name
+        if _GENAI_IMPL == "genai":
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)]
+                )
+            ]
+
+            generate_config = types.GenerateContentConfig(
+                temperature=0.7,
+                response_modalities=["TEXT", "AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice_name
+                        )
                     )
                 )
             )
-        )
+        else:
+            contents = [{
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }]
+
+            generate_config = {
+                "temperature": 0.7,
+                "max_output_tokens": 1024,
+            }
         
         # Generate and collect
         audio_chunks = []

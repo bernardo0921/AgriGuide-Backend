@@ -45,43 +45,58 @@ def generate():
         client = type("ClientShim", (), {"models": _ModelsShim(genai)})()
 
     model = "gemini-2.5-flash-preview-tts"
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text="""Read aloud in a warm, welcoming tone. The chat will be in English because the writer does not knoe Sesotho language. convert all the chat to Sesotho language and read in Sesotho. Do not read the englisgh text.:
+
+    if _GENAI_IMPL == "genai":
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text="""Read aloud in a warm, welcoming tone. The chat will be in English because the writer does not knoe Sesotho language. convert all the chat to Sesotho language and read in Sesotho. Do not read the englisgh text.:
 Speaker 1: Hello!, Welcome to Agriguide AI, your personal assistant for all things agriculture. I'm here to help you with crop management, pest control, weather updates, and much more. Let's work together to make your farming experience more efficient and productive."""),
-            ],
-        ),
-    ]
-    generate_content_config = types.GenerateContentConfig(
-        temperature=1,
-        response_modalities=[
-            "audio",
-        ],
-        speech_config=types.SpeechConfig(
-            multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
-                speaker_voice_configs=[
-                    types.SpeakerVoiceConfig(
-                        speaker="Speaker 1",
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name="Zephyr"
-                            )
-                        ),
-                    ),
-                    types.SpeakerVoiceConfig(
-                        speaker="Speaker 2",
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name="Puck"
-                            )
-                        ),
-                    ),
-                ]
+                ],
             ),
-        ),
-    )
+        ]
+
+        generate_content_config = types.GenerateContentConfig(
+            temperature=1,
+            response_modalities=[
+                "audio",
+            ],
+            speech_config=types.SpeechConfig(
+                multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                    speaker_voice_configs=[
+                        types.SpeakerVoiceConfig(
+                            speaker="Speaker 1",
+                            voice_config=types.VoiceConfig(
+                                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                    voice_name="Zephyr"
+                                )
+                            ),
+                        ),
+                        types.SpeakerVoiceConfig(
+                            speaker="Speaker 2",
+                            voice_config=types.VoiceConfig(
+                                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                    voice_name="Puck"
+                                )
+                            ),
+                        ),
+                    ]
+                ),
+            ),
+        )
+    else:
+        # Minimal fallback for google.generativeai
+        contents = [{
+            "role": "user",
+            "parts": [{"text": """Read aloud in a warm, welcoming tone. The chat will be in English because the writer does not knoe Sesotho language. convert all the chat to Sesotho language and read in Sesotho. Do not read the englisgh text.:
+Speaker 1: Hello!, Welcome to Agriguide AI, your personal assistant for all things agriculture. I'm here to help you with crop management, pest control, weather updates, and much more. Let's work together to make your farming experience more efficient and productive."""}]
+        }]
+
+        generate_content_config = {
+            "temperature": 1,
+            "max_output_tokens": 1024,
+        }
 
     file_index = 0
     for chunk in client.models.generate_content_stream(
