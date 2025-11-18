@@ -191,8 +191,18 @@ def chat_with_ai(request):
         if has_image:
             print(f"🖼️ Processing image: {image_file.name}")
             
-            # Load image for Gemini
+            # Load and compress image to reduce memory
             img = Image.open(image_file)
+            
+            # Resize if too large (max 1024x1024)
+            max_size = (1024, 1024)
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # Compress quality
+            if img.format == 'JPEG':
+                img = img.convert('RGB')
+                img.save(image_file, 'JPEG', quality=85, optimize=True)
+                image_file.seek(0)
             
             # Prepare prompt for vision analysis
             if message:
@@ -204,7 +214,7 @@ def chat_with_ai(request):
             response = vision_model.generate_content(
                 [vision_prompt, img],
                 generation_config={
-                    'temperature': 0.4,  # Lower temperature for more factual responses
+                    'temperature': 0.4,
                     'top_p': 0.8,
                     'top_k': 40
                 }
