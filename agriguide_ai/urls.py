@@ -2,7 +2,7 @@
 from django.urls import path
 from . import views
 from . import auth_views
-from . import community_views, lms_views, ai_tip_views, voice_conversation_views
+from . import community_views, lms_views, ai_tip_views
 from . import deep_link_views
 
 urlpatterns = [
@@ -57,18 +57,7 @@ urlpatterns = [
          views.test_connection, 
          name='test_connection'),
     
-    # ============ NEW: VOICE CONVERSATION ENDPOINTS ============
-    path('api/voice/conversation/', 
-         voice_conversation_views.voice_conversation, 
-         name='voice_conversation'),
-    path('api/voice/voices/', 
-         voice_conversation_views.get_available_voices, 
-         name='get_voices'),
-    path('api/voice/test/', 
-         voice_conversation_views.test_transcription, 
-         name='test_transcription'),
-    # ==========================================================
-    
+  
     # AI Tip endpoint
     path('api/farming-tip/', 
          ai_tip_views.get_daily_farming_tip, 

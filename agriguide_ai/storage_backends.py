@@ -37,3 +37,16 @@ class VerificationDocumentStorage(S3Boto3Storage):
     location = 'media/verification_docs'
     file_overwrite = False
     default_acl = None  # Remove ACL, use bucket policy instead
+
+class ChatImageStorage(S3Boto3Storage):
+    """S3 storage for chat images"""
+    location = 'chat_images'
+    default_acl = 'public-read'
+    file_overwrite = False
+    
+    def get_available_name(self, name, max_length=None):
+        """Generate unique filename"""
+        import uuid
+        from os.path import splitext
+        name_parts = splitext(name)
+        return f"{name_parts[0]}_{uuid.uuid4().hex}{name_parts[1]}"

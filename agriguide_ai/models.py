@@ -3,6 +3,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.core.validators import RegexValidator
 from django.core.files.storage import default_storage
+from .storage_backends import ChatImageStorage 
 
 from .storage_backends import (
     ProfilePictureStorage,
@@ -353,3 +354,36 @@ class Tutorial(models.Model):
         if self.uploader.first_name and self.uploader.last_name:
             return f"{self.uploader.first_name} {self.uploader.last_name}"
         return self.uploader.username
+class ChatMessage(models.Model):
+    """Store individual chat messages with optional images"""
+    session = models.ForeignKey(
+        ChatSession,
+        on_delete=models.CASCADE,
+        related_name='messages'
+    )
+    role = models.CharField(
+        max_length=10,
+        choices=(('user', 'User'), ('model', 'Model'))
+    )
+    message = models.TextField()
+    image = models.ImageField(
+        storage=ChatImageStorage(),  # S3 storage for chat images
+        blank=True,
+        null=True,
+        help_text="Optional image attachment"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'chat_messages'
+        ordering = ['created_at']
+    
+    def __str__(self):
+        return f"{self.role}: {self.message[:50]}..."
+    
+    @property
+    def image_url(self):
+        """Get S3 URL for image"""
+        if self.image:
+            return self.image.url
+        return None
