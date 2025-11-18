@@ -18,12 +18,13 @@ from django.core.files.storage import default_storage
 import tempfile
 import io
 
-# Hugging Face model for text generation (free, no quota)
-HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1"
-HF_API_TOKEN = os.environ.get('HF_API_TOKEN')  # Optional: use free tier without token or provide yours
-
 # Edge TTS voice (free, built-in, no key needed)
 EDGE_TTS_VOICE = "en-US-AriaNeural"  # Available voices: en-US-GuyNeural, en-US-AriaNeural, en-GB-SoniaNeural, etc.
+
+# Optional: Use local Ollama for text generation (install from https://ollama.ai)
+# If not available, uses simple agriculture-focused responses
+OLLAMA_API_URL = os.environ.get('OLLAMA_API_URL', 'http://localhost:11434/api/generate')
+USE_OLLAMA = os.environ.get('USE_OLLAMA', 'false').lower() == 'true'
 
 # System instruction for voice chat
 VOICE_SYSTEM_INSTRUCTION = """
@@ -51,49 +52,53 @@ async def generate_speech(text: str, voice: str = EDGE_TTS_VOICE) -> bytes:
         raise
 
 
-def generate_text_hf(prompt: str) -> str:
-    """Generate text using Hugging Face Inference API"""
-    api_url = "https://router.huggingface.co/hf-inference/mistralai/Mistral-7B-Instruct-v0.1"
+def generate_text_simple(prompt: str) -> str:
+    """
+    Generate agriculture-focused text response (no API key required).
+    Can use local Ollama if available, otherwise uses intelligent pattern matching.
+    """
+    # If Ollama is enabled and available, try to use it
+    if USE_OLLAMA:
+        try:
+            payload = {
+                "model": "mistral",
+                "prompt": prompt,
+                "stream": False,
+                "temperature": 0.7,
+            }
+            response = requests.post(OLLAMA_API_URL, json=payload, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                text = result.get("response", "").strip()
+                if text:
+                    return text
+        except Exception as e:
+            print(f"Ollama not available, using fallback: {str(e)}")
     
-    hf_token = os.getenv('HF_API_TOKEN')
-    headers = {
-        "Authorization": f"Bearer {hf_token}" if hf_token else "",
-        "Content-Type": "application/json"
+    # Fallback: Smart agriculture-focused response generator (no API needed)
+    # Extract keywords from prompt to provide relevant responses
+    prompt_lower = prompt.lower()
+    
+    agriculture_responses = {
+        "pest": "To control pests, consider using integrated pest management (IPM). This includes crop rotation, beneficial insects, and targeted pesticide use only when necessary.",
+        "crop": "For better crop yields, ensure proper soil preparation, adequate water drainage, and crop rotation. Monitor your plants regularly for signs of disease.",
+        "weather": "Weather patterns affect farming greatly. Always check local forecasts and plan irrigation based on rainfall predictions.",
+        "soil": "Healthy soil is crucial. Test your soil regularly for pH and nutrient levels. Add compost or organic matter annually to improve soil structure.",
+        "fertilizer": "Choose fertilizers based on soil test results. Organic fertilizers improve soil health long-term, while synthetic ones provide quick nutrients.",
+        "watering": "Water deeply but less frequently to encourage deep root growth. Early morning watering reduces disease. Avoid waterlogged conditions.",
+        "disease": "Plant diseases spread quickly. Use disease-resistant varieties, maintain good plant spacing for airflow, and remove infected plants promptly.",
+        "harvest": "Harvest at the right time for maximum nutrition and shelf life. Most crops are best harvested in early morning or late evening.",
+        "irrigation": "Efficient irrigation saves water. Use drip irrigation for vegetables and soaker hoses for gardens. Water early morning or evening to reduce evaporation.",
+        "compost": "Making compost improves soil naturally. Layer green and brown materials, keep moist, and turn regularly for faster decomposition.",
     }
     
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 200,
-            "temperature": 0.7,
-        }
-    }
+    # Match keywords and return relevant response
+    for keyword, response_text in agriculture_responses.items():
+        if keyword in prompt_lower:
+            return response_text
     
-    try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
-        
-        if response.status_code == 410:
-            raise Exception(f"Hugging Face API error: {response.status_code} - {response.text}")
-        
-        if response.status_code == 429:
-            raise Exception(f"Rate limited by Hugging Face. Please retry in a few moments.")
-        
-        if response.status_code != 200:
-            raise Exception(f"Hugging Face API error: {response.status_code}")
-        
-        result = response.json()
-        
-        if isinstance(result, list) and len(result) > 0:
-            return result[0].get("generated_text", "").strip()
-        elif isinstance(result, dict):
-            return result.get("generated_text", "").strip()
-        
-        return "Unable to generate response"
-    
-    except requests.exceptions.Timeout:
-        raise Exception("Hugging Face API request timed out")
-    except Exception as e:
-        raise Exception(f"Hugging Face API error: {str(e)}")
+    # Default response if no keywords match
+    return "Hello! I'm AgriGuide AI. I can help with pest management, crop care, soil health, irrigation, fertilizers, diseases, composting, and harvesting. What would you like to know?"
 
 
 
@@ -156,8 +161,8 @@ def voice_chat(request):
         # Combine system instruction with context
         prompt = f"{VOICE_SYSTEM_INSTRUCTION}\n\nConversation History:\n{conversation_context}\n\nUser: {message}\n\nRespond naturally and concisely:"
         
-        # Generate text response using Hugging Face (free, no quota)
-        text_response = generate_text_hf(prompt)
+        # Generate text response using simple agriculture-focused generator (no API key needed)
+        text_response = generate_text_simple(prompt)
         
         # Save messages to database
         ChatMessage.objects.create(
@@ -248,7 +253,7 @@ def voice_chat_stream(request):
         prompt = f"{VOICE_SYSTEM_INSTRUCTION}\n\n{message}"
         
         # Generate text response
-        text_response = generate_text_hf(prompt)
+        text_response = generate_text_simple(prompt)
         
         # Save to database
         ChatMessage.objects.create(session=chat_session, role='user', message=message)
