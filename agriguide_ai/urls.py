@@ -2,9 +2,8 @@
 from django.urls import path
 from . import views
 from . import auth_views
-from . import community_views, lms_views, ai_tip_views
+from . import community_views, lms_views, ai_tip_views, voice_conversation_views
 from . import deep_link_views
-from . import voice_conversation_views  # NEW IMPORT
 
 urlpatterns = [
     # Authentication endpoints
