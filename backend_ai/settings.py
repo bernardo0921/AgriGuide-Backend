@@ -208,7 +208,7 @@ AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
 AWS_S3_OBJECT_PARAMETERS = {
     'CacheControl': 'max-age=86400',  # 1 day cache
 }
-AWS_DEFAULT_ACL = 'public-read'  # Make files publicly accessible
+AWS_DEFAULT_ACL = None  # S3 bucket has ACLs disabled - don't set ACLs
 AWS_S3_FILE_OVERWRITE = False  # Don't overwrite files with same name
 AWS_QUERYSTRING_AUTH = False  # Don't add query parameter authentication
 

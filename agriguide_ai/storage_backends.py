@@ -41,7 +41,7 @@ class VerificationDocumentStorage(S3Boto3Storage):
 class ChatImageStorage(S3Boto3Storage):
     """S3 storage for chat images"""
     location = 'chat_images'
-    default_acl = 'public-read'
+    default_acl = None
     file_overwrite = False
     
     def get_available_name(self, name, max_length=None):
