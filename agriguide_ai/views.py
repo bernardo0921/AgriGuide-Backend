@@ -22,9 +22,9 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY not found in environment variables")
 
 # Initialize Gemini API
-genai.configure(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY, transport='rest')
 
-# Set up models - one for text, one for vision
+# Set up models - one for text, one for vision with extended timeout
 text_model = genai.GenerativeModel('gemini-2.5-flash')
 vision_model = genai.GenerativeModel('gemini-2.5-flash')
 
@@ -210,17 +210,23 @@ def chat_with_ai(request):
             else:
                 vision_prompt = f"{VISION_SYSTEM_INSTRUCTION}\n\nPlease analyze this crop image and provide detailed information about the crop, its health, and any diseases or issues you can identify."
             
-            # Generate response with image
-            response = vision_model.generate_content(
-                [vision_prompt, img],
-                generation_config={
-                    'temperature': 0.4,
-                    'top_p': 0.8,
-                    'top_k': 40
-                }
-            )
-            
-            ai_response = response.text
+            print(f"🚀 Sending image to Gemini API (timeout: 120 seconds)...")
+            # Generate response with image with extended timeout
+            try:
+                response = vision_model.generate_content(
+                    [vision_prompt, img],
+                    generation_config={
+                        'temperature': 0.4,
+                        'top_p': 0.8,
+                        'top_k': 40,
+                        'max_output_tokens': 1024
+                    },
+                    request_options={"timeout": 120}
+                )
+                ai_response = response.text
+            except Exception as vision_error:
+                print(f"❌ Vision API error: {str(vision_error)}")
+                ai_response = f"Error analyzing image: {str(vision_error)}"
             
         else:
             # Text-only conversation
@@ -251,14 +257,20 @@ def chat_with_ai(request):
             # Add system instruction
             chat.send_message(SYSTEM_INSTRUCTION)
             
-            # Send the actual message and get response
-            response = chat.send_message(message, generation_config={
-                'temperature': 0.7,
-                'top_p': 0.8,
-                'top_k': 40
-            })
-            
-            ai_response = response.text
+            # Send the actual message and get response with extended timeout
+            print(f"🚀 Sending message to Gemini API (timeout: 120 seconds)...")
+            try:
+                response = chat.send_message(message, generation_config={
+                    'temperature': 0.7,
+                    'top_p': 0.8,
+                    'top_k': 40,
+                    'max_output_tokens': 1024
+                }, request_options={"timeout": 120})
+                
+                ai_response = response.text
+            except Exception as chat_error:
+                print(f"❌ Chat API error: {str(chat_error)}")
+                ai_response = f"Error generating response: {str(chat_error)}"
         
         # Save AI response
         ChatMessage.objects.create(
