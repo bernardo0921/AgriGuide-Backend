@@ -215,11 +215,14 @@ def chat_with_ai(request):
         else:
             # Text-only conversation
             # Get conversation history
-            history_messages = ChatMessage.objects.filter(
+            all_messages = ChatMessage.objects.filter(
                 session=chat_session
-            ).order_by('created_at')[:-1]  # Exclude the message we just saved
+            ).order_by('created_at')
             
-            print(f"📚 Loading {history_messages.count()} messages from history")
+            # Exclude the message we just saved (keep all but the latest)
+            history_messages = all_messages[:all_messages.count()-1] if all_messages.count() > 1 else []
+            
+            print(f"📚 Loading {len(history_messages)} messages from history")
             
             # Build conversation contents
             contents = []
