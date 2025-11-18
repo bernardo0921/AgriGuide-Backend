@@ -25,8 +25,8 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Set up models - one for text, one for vision
-text_model = genai.GenerativeModel('gemini-2.0-flash-exp')
-vision_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+text_model = genai.GenerativeModel('gemini-2.5-flash')
+vision_model = genai.GenerativeModel('gemini-2.5-flash')
 
 # System instructions
 SYSTEM_INSTRUCTION = """
