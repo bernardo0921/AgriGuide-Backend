@@ -220,8 +220,7 @@ def chat_with_ai(request):
                         'top_p': 0.8,
                         'top_k': 40,
                         'max_output_tokens': 1024
-                    },
-                    request_options={"timeout": 120}
+                    }
                 )
                 ai_response = response.text
             except Exception as vision_error:
@@ -257,7 +256,7 @@ def chat_with_ai(request):
             # Add system instruction
             chat.send_message(SYSTEM_INSTRUCTION)
             
-            # Send the actual message and get response with extended timeout
+            # Send the actual message and get response
             print(f"🚀 Sending message to Gemini API (timeout: 120 seconds)...")
             try:
                 response = chat.send_message(message, generation_config={
@@ -265,7 +264,7 @@ def chat_with_ai(request):
                     'top_p': 0.8,
                     'top_k': 40,
                     'max_output_tokens': 1024
-                }, request_options={"timeout": 120})
+                })
                 
                 ai_response = response.text
             except Exception as chat_error:
