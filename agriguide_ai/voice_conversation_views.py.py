@@ -1,11 +1,12 @@
-# voice_conversation_views.py - Full Voice-to-Voice with HF API + Gemini + Edge TTS
+# agriguide_ai/voice_conversation_views.py
+# Full Voice-to-Voice with HF API + Gemini + Edge TTS (100% FREE)
+
 import os
 import uuid
 import asyncio
 import base64
 import io
 import requests
-from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -16,15 +17,18 @@ import google.generativeai as genai
 from .models import ChatSession, ChatMessage
 
 # ============ CONFIGURATION ============
-HUGGINGFACE_API_KEY = os.environ.get('HUGGINGFACE_API_KEY')  # FREE - Get from hf.co/settings/tokens
+HUGGINGFACE_API_KEY = os.environ.get('HUGGINGFACE_API_KEY')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 EDGE_TTS_VOICE = "en-US-AriaNeural"
 
 # Initialize Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+else:
+    gemini_model = None
 
-# Hugging Face Whisper API endpoint (FREE tier: 1000 requests/day)
+# Hugging Face Whisper API endpoint
 HF_WHISPER_API = "https://api-inference.huggingface.co/models/openai/whisper-large-v3"
 
 VOICE_SYSTEM_INSTRUCTION = """
@@ -35,12 +39,9 @@ Be warm, encouraging, and helpful.
 """
 
 
-# ============ SPEECH-TO-TEXT (Hugging Face Whisper API) ============
+# ============ SPEECH-TO-TEXT ============
 def transcribe_audio_hf(audio_bytes: bytes) -> dict:
-    """
-    Transcribe audio using Hugging Face Inference API (FREE)
-    Returns: {'success': bool, 'text': str, 'error': str}
-    """
+    """Transcribe audio using Hugging Face Inference API"""
     if not HUGGINGFACE_API_KEY:
         return {
             'success': False,
@@ -74,9 +75,9 @@ def transcribe_audio_hf(audio_bytes: bytes) -> dict:
         return {'success': False, 'error': error_msg}
 
 
-# ============ TEXT-TO-SPEECH (Edge TTS) ============
+# ============ TEXT-TO-SPEECH ============
 async def generate_speech(text: str, voice: str = EDGE_TTS_VOICE) -> bytes:
-    """Generate speech using Edge TTS (FREE, unlimited)"""
+    """Generate speech using Edge TTS"""
     try:
         output = io.BytesIO()
         communicate = edge_tts.Communicate(text, voice)
@@ -90,35 +91,32 @@ async def generate_speech(text: str, voice: str = EDGE_TTS_VOICE) -> bytes:
         raise
 
 
-# ============ AI TEXT GENERATION (Gemini) ============
+# ============ AI TEXT GENERATION ============
 def generate_ai_response(message: str, chat_session=None) -> str:
-    """
-    Generate AI response using Gemini with conversation history
-    """
+    """Generate AI response using Gemini"""
+    if not gemini_model:
+        return "Sorry, AI service is not configured properly."
+    
     try:
-        # Get conversation history if session exists
         history = []
         if chat_session:
             last_messages = ChatMessage.objects.filter(
                 session=chat_session
             ).order_by('-created_at')[:5]
             
-            # Build context from recent messages
             for msg in reversed(list(last_messages)):
                 role = "User" if msg.role == "user" else "Assistant"
                 history.append(f"{role}: {msg.message}")
         
-        # Build prompt with context
         context = "\n".join(history) if history else ""
         prompt = f"{VOICE_SYSTEM_INSTRUCTION}\n\n{context}\n\nUser: {message}\n\nRespond briefly:"
         
-        # Generate response
         response = gemini_model.generate_content(
             prompt,
             generation_config={
                 'temperature': 0.7,
                 'top_p': 0.8,
-                'max_output_tokens': 150,  # Keep responses short for voice
+                'max_output_tokens': 150,
             }
         )
         
@@ -129,53 +127,41 @@ def generate_ai_response(message: str, chat_session=None) -> str:
         return "I'm having trouble responding right now. Please try again."
 
 
-# ============ MAIN VOICE CONVERSATION ENDPOINT ============
+# ============ MAIN ENDPOINT ============
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser, JSONParser])
 def voice_conversation(request):
-    """
-    Full voice-to-voice conversation endpoint
-    
-    Accepts: Audio file (multipart/form-data) or base64 audio (JSON)
-    Returns: JSON with transcription, AI response text, and response audio (base64)
-    
-    Expected request:
-    - Multipart: 'audio' file field + optional 'session_id' and 'voice'
-    - JSON: {'audio_base64': '...', 'session_id': '...', 'voice': '...'}
-    """
+    """Full voice-to-voice conversation endpoint"""
     try:
-        # Get session ID and voice preference
         session_id = request.data.get('session_id')
         voice_name = request.data.get('voice', EDGE_TTS_VOICE)
         
-        # Get audio data (multipart or base64)
+        # Get audio data
         audio_bytes = None
         
         if 'audio' in request.FILES:
-            # Multipart upload
             audio_file = request.FILES['audio']
             audio_bytes = audio_file.read()
             print(f"📁 Received audio file: {audio_file.name}, size: {len(audio_bytes)} bytes")
         elif 'audio_base64' in request.data:
-            # Base64 encoded audio
             audio_base64 = request.data['audio_base64']
             audio_bytes = base64.b64decode(audio_base64)
             print(f"📦 Received base64 audio, size: {len(audio_bytes)} bytes")
         else:
             return Response({
                 'success': False,
-                'error': 'No audio data provided. Send either "audio" file or "audio_base64"'
+                'error': 'No audio data provided'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Validate audio size (max 10MB for free tier)
+        # Validate audio size
         if len(audio_bytes) > 10 * 1024 * 1024:
             return Response({
                 'success': False,
                 'error': 'Audio file too large (max 10MB)'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # ========== STEP 1: TRANSCRIBE AUDIO ==========
+        # STEP 1: TRANSCRIBE
         transcription_result = transcribe_audio_hf(audio_bytes)
         
         if not transcription_result['success']:
@@ -190,10 +176,10 @@ def voice_conversation(request):
         if not user_message:
             return Response({
                 'success': False,
-                'error': 'Could not transcribe audio. Please speak clearly and try again.'
+                'error': 'Could not transcribe audio. Please speak clearly.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # ========== STEP 2: GET OR CREATE SESSION ==========
+        # STEP 2: GET OR CREATE SESSION
         if session_id:
             try:
                 chat_session = ChatSession.objects.get(
@@ -212,10 +198,10 @@ def voice_conversation(request):
                 session_id=session_id
             )
         
-        # ========== STEP 3: GENERATE AI RESPONSE ==========
+        # STEP 3: GENERATE AI RESPONSE
         ai_response_text = generate_ai_response(user_message, chat_session)
         
-        # ========== STEP 4: SAVE MESSAGES ==========
+        # STEP 4: SAVE MESSAGES
         ChatMessage.objects.create(
             session=chat_session,
             role='user',
@@ -230,7 +216,7 @@ def voice_conversation(request):
         
         chat_session.save()
         
-        # ========== STEP 5: GENERATE SPEECH ==========
+        # STEP 5: GENERATE SPEECH
         try:
             audio_response_bytes = asyncio.run(generate_speech(ai_response_text, voice_name))
             audio_response_base64 = base64.b64encode(audio_response_bytes).decode('utf-8')
@@ -238,7 +224,7 @@ def voice_conversation(request):
             print(f"⚠️ TTS failed: {str(e)}")
             audio_response_base64 = None
         
-        # ========== RETURN COMPLETE RESPONSE ==========
+        # RETURN RESPONSE
         return Response({
             'success': True,
             'session_id': session_id,
@@ -260,7 +246,7 @@ def voice_conversation(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# ============ GET AVAILABLE VOICES ============
+# ============ GET VOICES ============
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_available_voices(request):
