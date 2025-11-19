@@ -116,5 +116,4 @@ urlpatterns = [
          deep_link_views.track_share_analytics, 
          name='track_share'),
 
-     path('temporal-superuser-create/', views.create_superuser_temporal, name='temporal_superuser_create'),
 ]
