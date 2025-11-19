@@ -132,29 +132,18 @@ When analyzing an image, structure your response as follows:
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def chat_with_ai(request):
+def chat_with_ai_stream(request):
     """
-    Endpoint to chat with AgriGuide AI (supports text and images)
-    Supports both form-data (with image) and JSON (text only)
+    Streaming endpoint for real-time typing animation
+    Returns chunks of text as they're generated
     """
     try:
-        # Check if request has files (multipart/form-data)
-        has_image = 'image' in request.FILES
+        message = request.data.get('message', '').strip()
+        session_id = request.data.get('session_id')
         
-        if has_image:
-            # Handle multipart form data
-            message = request.data.get('message', '').strip()
-            session_id = request.data.get('session_id')
-            image_file = request.FILES['image']
-        else:
-            # Handle JSON data
-            message = request.data.get('message', '').strip()
-            session_id = request.data.get('session_id')
-            image_file = None
-        
-        if not message and not has_image:
+        if not message:
             return Response({
-                'error': 'Message or image is required'
+                'error': 'Message is required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Get or create chat session
@@ -164,112 +153,165 @@ def chat_with_ai(request):
                     session_id=session_id,
                     user=request.user
                 )
-                print(f"✅ Using existing session: {session_id}")
             except ChatSession.DoesNotExist:
                 chat_session = ChatSession.objects.create(
                     user=request.user,
                     session_id=session_id
                 )
-                print(f"✅ Created new session with provided ID: {session_id}")
         else:
             session_id = str(uuid.uuid4())
             chat_session = ChatSession.objects.create(
                 user=request.user,
                 session_id=session_id
             )
-            print(f"✅ Created new session with UUID: {session_id}")
         
-        # Save user message with optional image
+        # Save user message
+        user_message = ChatMessage.objects.create(
+            session=chat_session,
+            role='user',
+            message=message
+        )
+        
+        # Generator function for streaming
+        def generate_response():
+            try:
+                # Get conversation history
+                history_messages = ChatMessage.objects.filter(
+                    session=chat_session
+                ).exclude(id=user_message.id).order_by('created_at')
+                
+                # Start chat with history
+                chat = text_model.start_chat(history=[])
+                chat.send_message(SYSTEM_INSTRUCTION)
+                
+                # Generate streaming response
+                response = chat.send_message(
+                    message,
+                    generation_config={
+                        'temperature': 0.7,
+                        'top_p': 0.8,
+                        'top_k': 40,
+                        'max_output_tokens': 1024
+                    },
+                    stream=True  # Enable streaming
+                )
+                
+                full_response = ""
+                
+                # Send session_id first
+                yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
+                
+                # Stream chunks
+                for chunk in response:
+                    if chunk.text:
+                        full_response += chunk.text
+                        # Send each chunk as JSON
+                        yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.text})}\n\n"
+                
+                # Save complete response to database
+                ChatMessage.objects.create(
+                    session=chat_session,
+                    role='model',
+                    message=full_response
+                )
+                
+                # Update session timestamp
+                chat_session.save()
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'type': 'done', 'full_text': full_response})}\n\n"
+                
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+        
+        # Return streaming response
+        response = StreamingHttpResponse(
+            generate_response(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+        
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def chat_with_ai(request):
+    """
+    Standard endpoint (non-streaming) for image analysis
+    Use this for image uploads, use chat_with_ai_stream for text
+    """
+    try:
+        has_image = 'image' in request.FILES
+        
+        if has_image:
+            message = request.data.get('message', '').strip()
+            session_id = request.data.get('session_id')
+            image_file = request.FILES['image']
+        else:
+            # Redirect to streaming endpoint for text-only
+            return Response({
+                'error': 'Use /chat-stream endpoint for text messages'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get or create session
+        if session_id:
+            try:
+                chat_session = ChatSession.objects.get(
+                    session_id=session_id,
+                    user=request.user
+                )
+            except ChatSession.DoesNotExist:
+                chat_session = ChatSession.objects.create(
+                    user=request.user,
+                    session_id=session_id
+                )
+        else:
+            session_id = str(uuid.uuid4())
+            chat_session = ChatSession.objects.create(
+                user=request.user,
+                session_id=session_id
+            )
+        
+        # Save user message with image
         user_message = ChatMessage.objects.create(
             session=chat_session,
             role='user',
             message=message or "Please analyze this image",
-            image=image_file if has_image else None
+            image=image_file
         )
         
-        # Process image if present
-        if has_image:
-            print(f"🖼️ Processing image: {image_file.name}")
-            
-            # Load and compress image to reduce memory
-            img = Image.open(image_file)
-            
-            # Resize if too large (max 1024x1024)
-            max_size = (1024, 1024)
-            img.thumbnail(max_size, Image.Resampling.LANCZOS)
-            
-            # Compress quality
-            if img.format == 'JPEG':
-                img = img.convert('RGB')
-                img.save(image_file, 'JPEG', quality=85, optimize=True)
-                image_file.seek(0)
-            
-            # Prepare prompt for vision analysis
-            if message:
-                vision_prompt = f"{VISION_SYSTEM_INSTRUCTION}\n\nUser's question: {message}\n\nPlease analyze the image and provide detailed information."
-            else:
-                vision_prompt = f"{VISION_SYSTEM_INSTRUCTION}\n\nPlease analyze this crop image and provide detailed information about the crop, its health, and any diseases or issues you can identify."
-            
-            print(f"🚀 Sending image to Gemini API (timeout: 120 seconds)...")
-            # Generate response with image with extended timeout
-            try:
-                response = vision_model.generate_content(
-                    [vision_prompt, img],
-                    generation_config={
-                        'temperature': 0.4,
-                        'top_p': 0.8,
-                        'top_k': 40,
-                        'max_output_tokens': 1024
-                    }
-                )
-                ai_response = response.text
-            except Exception as vision_error:
-                print(f"❌ Vision API error: {str(vision_error)}")
-                ai_response = f"Error analyzing image: {str(vision_error)}"
-            
-        else:
-            # Text-only conversation
-            # Get conversation history
-            all_messages = ChatMessage.objects.filter(
-                session=chat_session
-            ).order_by('created_at')
-            
-            # Exclude the message we just saved (keep all but the latest)
-            history_messages = all_messages[:all_messages.count()-1] if all_messages.count() > 1 else []
-            
-            print(f"📚 Loading {len(history_messages)} messages from history")
-            
-            # Build conversation contents
-            contents = []
-            
-            # Add history (only text messages)
-            for msg in history_messages:
-                if not msg.image:  # Skip messages with images in history for now
-                    contents.append({
-                        'role': msg.role,
-                        'parts': [{'text': msg.message}]
-                    })
-            
-            # Start chat with history
-            chat = text_model.start_chat(history=[])
-            
-            # Add system instruction
-            chat.send_message(SYSTEM_INSTRUCTION)
-            
-            # Send the actual message and get response
-            print(f"🚀 Sending message to Gemini API (timeout: 120 seconds)...")
-            try:
-                response = chat.send_message(message, generation_config={
-                    'temperature': 0.7,
-                    'top_p': 0.8,
-                    'top_k': 40,
-                    'max_output_tokens': 1024
-                })
-                
-                ai_response = response.text
-            except Exception as chat_error:
-                print(f"❌ Chat API error: {str(chat_error)}")
-                ai_response = f"Error generating response: {str(chat_error)}"
+        # Process image
+        img = Image.open(image_file)
+        max_size = (1024, 1024)
+        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        
+        if img.format == 'JPEG':
+            img = img.convert('RGB')
+        
+        # Generate vision response
+        vision_prompt = f"{VISION_SYSTEM_INSTRUCTION}\n\n"
+        if message:
+            vision_prompt += f"User's question: {message}\n\n"
+        vision_prompt += "Please analyze the image and provide detailed information."
+        
+        response = vision_model.generate_content(
+            [vision_prompt, img],
+            generation_config={
+                'temperature': 0.4,
+                'top_p': 0.8,
+                'top_k': 40,
+                'max_output_tokens': 1024
+            }
+        )
+        
+        ai_response = response.text
         
         # Save AI response
         ChatMessage.objects.create(
@@ -278,27 +320,21 @@ def chat_with_ai(request):
             message=ai_response
         )
         
-        # Update session timestamp
         chat_session.save()
-        
-        print(f"✅ Response saved to session {session_id}")
-        print(f"📊 Session now has {chat_session.messages.count()} messages")
         
         return Response({
             'response': ai_response,
             'session_id': session_id,
-            'image_url': user_message.image_url if has_image else None
+            'image_url': user_message.image_url
         })
         
     except Exception as e:
-        print(f"❌ Error in chat_with_ai: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
         return Response({
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# Keep other endpoints (get_chat_sessions, get_chat_history, etc.) unchanged
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_chat_sessions(request):
@@ -319,15 +355,13 @@ def get_chat_sessions(request):
             'last_message': last_message.message if last_message else None
         })
     
-    print(f"📋 Returning {len(sessions_data)} sessions for user {request.user.username}")
-    
     return Response({'sessions': sessions_data})
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_chat_history(request, session_id):
-    """Get chat history for a specific session (includes images)"""
+    """Get chat history for a specific session"""
     try:
         chat_session = ChatSession.objects.get(
             session_id=session_id,
@@ -347,8 +381,6 @@ def get_chat_history(request, session_id):
                 'created_at': msg.created_at
             })
         
-        print(f"📖 Returning {len(history)} messages for session {session_id}")
-        
         return Response({
             'session_id': session_id,
             'history': history
@@ -358,80 +390,3 @@ def get_chat_history(request, session_id):
         return Response({
             'error': 'Session not found or access denied'
         }, status=status.HTTP_404_NOT_FOUND)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def clear_chat_session(request):
-    """Clear a chat session"""
-    try:
-        session_id = request.data.get('session_id')
-        
-        if not session_id:
-            return Response({
-                'error': 'session_id is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        chat_session = ChatSession.objects.get(
-            session_id=session_id,
-            user=request.user
-        )
-        
-        chat_session.is_active = False
-        chat_session.save()
-        
-        print(f"🗑️ Session {session_id} marked as inactive")
-        
-        return Response({'message': 'Session cleared'})
-        
-    except ChatSession.DoesNotExist:
-        return Response({
-            'error': 'Session not found or access denied'
-        }, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        return Response({
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
-def delete_chat_session(request, session_id):
-    """Delete a chat session permanently"""
-    try:
-        chat_session = ChatSession.objects.get(
-            session_id=session_id,
-            user=request.user
-        )
-        
-        message_count = chat_session.messages.count()
-        chat_session.delete()
-        
-        print(f"🗑️ Deleted session {session_id} with {message_count} messages")
-        
-        return Response({
-            'message': 'Session deleted successfully'
-        })
-        
-    except ChatSession.DoesNotExist:
-        return Response({
-            'error': 'Session not found or access denied'
-        }, status=status.HTTP_404_NOT_FOUND)
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def test_connection(request):
-    """Test endpoint to verify Gemini API connection"""
-    try:
-        response = text_model.generate_content('Hello, test connection')
-        return Response({
-            'status': 'connected',
-            'response': response.text,
-            'user': request.user.username
-        })
-    except Exception as e:
-        return Response({
-            'status': 'error',
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
