@@ -15,6 +15,7 @@ import uuid
 from PIL import Image
 import io
 
+
 # Configure Gemini API
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
@@ -469,3 +470,90 @@ def get_chat_history(request, session_id):
         return Response({
             'error': 'Session not found or access denied'
         }, status=status.HTTP_404_NOT_FOUND)
+
+
+# views.py (add to the bottom)
+# In views.py, add these standard Django imports
+from django.shortcuts import render 
+from django.http import HttpResponse 
+from django.views.decorators.csrf import csrf_exempt 
+
+# Add the new form import
+from .forms import TemporalSuperuserCreationForm 
+# Note: 'os' and 'User' from models should already be imported in your file.
+# The same 'os' is already imported at the top of your views.py snippet
+# TEMPORAL_SUPERUSER_SECRET is the key that *must* match the value you set in Render.
+TEMPORAL_SUPERUSER_SECRET = os.environ.get('SUPERUSER_CREATION_KEY', 'REMOVE_ME_AFTER_USE')
+
+
+@csrf_exempt
+def create_superuser_temporal(request):
+    """
+    TEMPORARY view to create a superuser via a web form.
+    MUST BE REMOVED IMMEDIATELY AFTER USE.
+    """
+    if request.method == 'POST':
+        form = TemporalSuperuserCreationForm(request.POST)
+        if form.is_valid():
+            
+            # 1. SECRET KEY CHECK
+            secret_key = form.cleaned_data['secret_key']
+            if secret_key != TEMPORAL_SUPERUSER_SECRET or TEMPORAL_SUPERUSER_SECRET == 'REMOVE_ME_AFTER_USE':
+                return HttpResponse("Error: Invalid or unset Temporal Secret Key.", status=403)
+            
+            # 2. CREATE SUPERUSER
+            username = form.cleaned_data['username']
+            email = form.cleaned_data['email']
+            phone_number = form.cleaned_data['phone_number']
+            password = form.cleaned_data['password']
+            
+            try:
+                User.objects.create_superuser(
+                    username=username,
+                    email=email,
+                    phone_number=phone_number, # Required by your custom model
+                    password=password,
+                )
+                
+                # Success message
+                return HttpResponse(
+                    f"Superuser '{username}' created successfully! **REMOVE THIS ENDPOINT NOW!**", 
+                    status=201
+                )
+
+            except Exception as e:
+                # Catch errors like duplicate username or phone number
+                return HttpResponse(f"Error creating superuser: {e}", status=400)
+        
+        # Form validation failure
+        return HttpResponse(
+            f"Invalid form data: {form.errors.as_text()}", 
+            status=400
+        )
+    
+    # Handle GET request: Show the HTML form
+    else:
+        form = TemporalSuperuserCreationForm()
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Create Superuser</title></head>
+        <body>
+            <h1>Temporal Superuser Creation Form</h1>
+            <p style="color: red; border: 1px solid red; padding: 10px;">
+                <strong>WARNING:</strong> This endpoint is a major security risk and 
+                <strong>MUST BE REMOVED IMMEDIATELY</strong> after creating your superuser.
+            </p>
+            <form method="post" style="max-width: 400px; margin-top: 20px;">
+                {form.as_p()}
+                <button type="submit" style="padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer;">
+                    Create Superuser
+                </button>
+            </form>
+            <p><strong>Setup required:</strong> You must set an environment variable 
+               <code>SUPERUSER_CREATION_KEY</code> in your Render environment 
+               and enter that exact value in the form's secret key field.</p>
+        </body>
+        </html>
+        """
+        return HttpResponse(html)
