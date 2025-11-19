@@ -1,4 +1,4 @@
-# agriguide_ai/urls.py - UPDATED WITH VOICE CONVERSATION ROUTES
+# agriguide_ai/urls.py - UPDATED WITH STREAMING CHAT ENDPOINT
 from django.urls import path
 from . import views
 from . import auth_views
@@ -41,6 +41,9 @@ urlpatterns = [
     path('api/chat/', 
          views.chat_with_ai, 
          name='chat_with_ai'),
+    path('api/chat-stream/', 
+         views.chat_with_ai_stream, 
+         name='chat_with_ai_stream'),  # NEW: Streaming endpoint
     path('api/chat/sessions/', 
          views.get_chat_sessions, 
          name='get_chat_sessions'),
@@ -57,7 +60,6 @@ urlpatterns = [
          views.test_connection, 
          name='test_connection'),
     
-  
     # AI Tip endpoint
     path('api/farming-tip/', 
          ai_tip_views.get_daily_farming_tip, 
