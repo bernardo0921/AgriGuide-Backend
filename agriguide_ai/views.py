@@ -130,6 +130,85 @@ When analyzing an image, structure your response as follows:
 """
 
 
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def clear_chat_session(request):
+    """Clear a chat session"""
+    try:
+        session_id = request.data.get('session_id')
+        
+        if not session_id:
+            return Response({
+                'error': 'session_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        chat_session = ChatSession.objects.get(
+            session_id=session_id,
+            user=request.user
+        )
+        
+        chat_session.is_active = False
+        chat_session.save()
+        
+        print(f"🗑️ Session {session_id} marked as inactive")
+        
+        return Response({'message': 'Session cleared'})
+        
+    except ChatSession.DoesNotExist:
+        return Response({
+            'error': 'Session not found or access denied'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_chat_session(request, session_id):
+    """Delete a chat session permanently"""
+    try:
+        chat_session = ChatSession.objects.get(
+            session_id=session_id,
+            user=request.user
+        )
+        
+        message_count = chat_session.messages.count()
+        chat_session.delete()
+        
+        print(f"🗑️ Deleted session {session_id} with {message_count} messages")
+        
+        return Response({
+            'message': 'Session deleted successfully'
+        })
+        
+    except ChatSession.DoesNotExist:
+        return Response({
+            'error': 'Session not found or access denied'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def test_connection(request):
+    """Test endpoint to verify Gemini API connection"""
+    try:
+        response = text_model.generate_content('Hello, test connection')
+        return Response({
+            'status': 'connected',
+            'response': response.text,
+            'user': request.user.username
+        })
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def chat_with_ai_stream(request):
