@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 import json
 import os
-from .models import ChatSession, ChatMessage
+from .models import ChatSession, ChatMessage, User
 from django.core.cache import cache
 from datetime import date
 import uuid
