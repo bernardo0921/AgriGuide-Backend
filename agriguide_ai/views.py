@@ -1,4 +1,4 @@
-# views.py (Updated with Image Analysis)
+# views.py (Fixed with Conversation Memory)
 import google.generativeai as genai
 from django.http import JsonResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, permission_classes
@@ -24,11 +24,11 @@ if not GEMINI_API_KEY:
 # Initialize Gemini API
 genai.configure(api_key=GEMINI_API_KEY, transport='rest')
 
-# Set up models - one for text, one for vision with extended timeout
+# Set up models
 text_model = genai.GenerativeModel('gemini-2.5-flash-lite')
 vision_model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
-# System instructions
+# System instructions (keep your existing instructions)
 SYSTEM_INSTRUCTION = """
 You are **AgriGuide AI**, an expert agricultural advisor specializing in farming practices, crop management, pest control, soil health, irrigation, and sustainable agriculture. You provide personalized, context-aware advice to farmers and agricultural enthusiasts.
 
@@ -130,6 +130,30 @@ When analyzing an image, structure your response as follows:
 """
 
 
+def build_conversation_history(chat_session, exclude_message_id=None):
+    """
+    Build conversation history in Gemini's expected format
+    Returns a list of {'role': 'user'/'model', 'parts': ['text']}
+    """
+    history_messages = ChatMessage.objects.filter(
+        session=chat_session
+    ).order_by('created_at')
+    
+    if exclude_message_id:
+        history_messages = history_messages.exclude(id=exclude_message_id)
+    
+    history = []
+    for msg in history_messages:
+        # Skip system messages or empty messages
+        if not msg.message or msg.role not in ['user', 'model']:
+            continue
+            
+        history.append({
+            'role': msg.role,
+            'parts': [msg.message]
+        })
+    
+    return history
 
 
 @api_view(['POST'])
@@ -207,14 +231,13 @@ def test_connection(request):
             'status': 'error',
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def chat_with_ai_stream(request):
     """
-    Streaming endpoint for real-time typing animation
-    Returns chunks of text as they're generated
+    Streaming endpoint for real-time typing animation with conversation memory
     """
     try:
         message = request.data.get('message', '').strip()
@@ -254,14 +277,17 @@ def chat_with_ai_stream(request):
         # Generator function for streaming
         def generate_response():
             try:
-                # Get conversation history
-                history_messages = ChatMessage.objects.filter(
-                    session=chat_session
-                ).exclude(id=user_message.id).order_by('created_at')
+                # Build conversation history (excluding current message)
+                history = build_conversation_history(chat_session, exclude_message_id=user_message.id)
                 
-                # Start chat with history
-                chat = text_model.start_chat(history=[])
-                chat.send_message(SYSTEM_INSTRUCTION)
+                print(f"📚 Loading {len(history)} previous messages for context")
+                
+                # Start chat with history and system instruction
+                chat = text_model.start_chat(history=history)
+                
+                # Add system instruction as first message if history is empty
+                if not history:
+                    chat.send_message(SYSTEM_INSTRUCTION)
                 
                 # Generate streaming response
                 response = chat.send_message(
@@ -272,7 +298,7 @@ def chat_with_ai_stream(request):
                         'top_k': 40,
                         'max_output_tokens': 1024
                     },
-                    stream=True  # Enable streaming
+                    stream=True
                 )
                 
                 full_response = ""
@@ -284,7 +310,6 @@ def chat_with_ai_stream(request):
                 for chunk in response:
                     if chunk.text:
                         full_response += chunk.text
-                        # Send each chunk as JSON
                         yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.text})}\n\n"
                 
                 # Save complete response to database
@@ -297,11 +322,14 @@ def chat_with_ai_stream(request):
                 # Update session timestamp
                 chat_session.save()
                 
+                print(f"✅ Response saved. Session now has {chat_session.messages.count()} messages")
+                
                 # Send completion signal
                 yield f"data: {json.dumps({'type': 'done', 'full_text': full_response})}\n\n"
                 
             except Exception as e:
                 error_msg = f"Error: {str(e)}"
+                print(f"❌ Error in streaming: {error_msg}")
                 yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
         
         # Return streaming response
@@ -323,8 +351,7 @@ def chat_with_ai_stream(request):
 @permission_classes([IsAuthenticated])
 def chat_with_ai(request):
     """
-    Standard endpoint (non-streaming) for image analysis
-    Use this for image uploads, use chat_with_ai_stream for text
+    Standard endpoint for image analysis with conversation memory
     """
     try:
         has_image = 'image' in request.FILES
@@ -334,7 +361,6 @@ def chat_with_ai(request):
             session_id = request.data.get('session_id')
             image_file = request.FILES['image']
         else:
-            # Redirect to streaming endpoint for text-only
             return Response({
                 'error': 'Use /chat-stream endpoint for text messages'
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -374,12 +400,28 @@ def chat_with_ai(request):
         if img.format == 'JPEG':
             img = img.convert('RGB')
         
-        # Generate vision response
+        # Build conversation history for context
+        history = build_conversation_history(chat_session, exclude_message_id=user_message.id)
+        
+        # Create context-aware prompt
         vision_prompt = f"{VISION_SYSTEM_INSTRUCTION}\n\n"
+        
+        # Add conversation context if exists
+        if history:
+            vision_prompt += "Previous conversation context:\n"
+            for msg in history[-4:]:  # Last 4 messages for context
+                role = "User" if msg['role'] == 'user' else "AI"
+                vision_prompt += f"{role}: {msg['parts'][0][:200]}...\n"
+            vision_prompt += "\n"
+        
         if message:
             vision_prompt += f"User's question: {message}\n\n"
+        
         vision_prompt += "Please analyze the image and provide detailed information."
         
+        print(f"📸 Analyzing image with {len(history)} messages of context")
+        
+        # Generate vision response
         response = vision_model.generate_content(
             [vision_prompt, img],
             generation_config={
@@ -401,6 +443,8 @@ def chat_with_ai(request):
         
         chat_session.save()
         
+        print(f"✅ Image analysis complete. Session now has {chat_session.messages.count()} messages")
+        
         return Response({
             'response': ai_response,
             'session_id': session_id,
@@ -408,12 +452,12 @@ def chat_with_ai(request):
         })
         
     except Exception as e:
+        print(f"❌ Error in image analysis: {str(e)}")
         return Response({
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# Keep other endpoints (get_chat_sessions, get_chat_history, etc.) unchanged
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_chat_sessions(request):
@@ -469,4 +513,3 @@ def get_chat_history(request, session_id):
         return Response({
             'error': 'Session not found or access denied'
         }, status=status.HTTP_404_NOT_FOUND)
-
