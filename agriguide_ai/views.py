@@ -1,6 +1,6 @@
 # views.py (Updated with Image Analysis)
 import google.generativeai as genai
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
