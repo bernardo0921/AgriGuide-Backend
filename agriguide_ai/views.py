@@ -26,7 +26,7 @@ genai.configure(api_key=GEMINI_API_KEY, transport='rest')
 
 # Set up models - one for text, one for vision with extended timeout
 text_model = genai.GenerativeModel('gemini-2.5-flash-lite')
-vision_model = genai.GenerativeModel('gemini-2.5-flash-lite', timeout=120)
+vision_model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
 # System instructions
 SYSTEM_INSTRUCTION = """
