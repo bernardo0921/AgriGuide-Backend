@@ -209,6 +209,7 @@ def test_connection(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
+# views.py - FIXED SESSION LOGIC
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def chat_with_ai_stream(request):
@@ -225,24 +226,32 @@ def chat_with_ai_stream(request):
                 'error': 'Message is required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get or create chat session
+        # FIXED SESSION LOGIC - Only create new session if no valid session_id provided
         if session_id:
             try:
+                # Try to retrieve existing session
                 chat_session = ChatSession.objects.get(
                     session_id=session_id,
                     user=request.user
                 )
+                print(f"✅ Reusing existing session: {session_id}")
             except ChatSession.DoesNotExist:
+                # If provided session_id doesn't exist, create new one with NEW UUID
+                # Don't reuse the invalid session_id
+                session_id = str(uuid.uuid4())
                 chat_session = ChatSession.objects.create(
                     user=request.user,
                     session_id=session_id
                 )
+                print(f"⚠️ Provided session not found, created new session: {session_id}")
         else:
+            # No session_id provided, create new session
             session_id = str(uuid.uuid4())
             chat_session = ChatSession.objects.create(
                 user=request.user,
                 session_id=session_id
             )
+            print(f"🆕 Created new session: {session_id}")
         
         # Save user message
         user_message = ChatMessage.objects.create(
@@ -317,8 +326,6 @@ def chat_with_ai_stream(request):
         return Response({
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def chat_with_ai(request):
