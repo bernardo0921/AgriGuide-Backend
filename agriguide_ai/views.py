@@ -300,11 +300,23 @@ def chat_with_ai_stream(request):
                 # Send session_id first
                 yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
                 
-                # Stream chunks
+                # Stream chunks with safer text extraction
                 for chunk in response:
-                    if chunk.text:
-                        full_response += chunk.text
-                        yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.text})}\n\n"
+                    try:
+                        # Try to get text from chunk
+                        chunk_text = ""
+                        if hasattr(chunk, 'text') and chunk.text:
+                            chunk_text = chunk.text
+                        elif hasattr(chunk, 'parts'):
+                            # Handle multi-part responses
+                            chunk_text = "".join([part.text for part in chunk.parts if hasattr(part, 'text')])
+                        
+                        if chunk_text:
+                            full_response += chunk_text
+                            yield f"data: {json.dumps({'type': 'chunk', 'text': chunk_text})}\n\n"
+                    except Exception as chunk_error:
+                        print(f"⚠️ Error processing chunk: {chunk_error}")
+                        continue
                 
                 # Save complete response to database
                 ChatMessage.objects.create(
@@ -434,7 +446,20 @@ def chat_with_ai(request):
             }
         )
         
-        ai_response = response.text
+        # FIXED: Safely extract text from response
+        ai_response = ""
+        try:
+            if hasattr(response, 'text') and response.text:
+                ai_response = response.text
+            elif hasattr(response, 'parts'):
+                ai_response = "".join([part.text for part in response.parts if hasattr(part, 'text')])
+            elif hasattr(response, 'candidates') and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                    ai_response = "".join([part.text for part in candidate.content.parts if hasattr(part, 'text')])
+        except Exception as e:
+            print(f"⚠️ Error extracting text from vision response: {e}")
+            ai_response = "I analyzed the image but had trouble formatting the response. Please try again."
         
         # Save AI response
         ChatMessage.objects.create(
@@ -458,6 +483,7 @@ def chat_with_ai(request):
         return Response({
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def chat_with_ai(request):
