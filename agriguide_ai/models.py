@@ -167,29 +167,6 @@ class ChatSession(models.Model):
     def __str__(self):
         return f"Session {self.session_id} - {self.user.username}"
 
-
-class ChatMessage(models.Model):
-    """Store individual chat messages"""
-    session = models.ForeignKey(
-        ChatSession,
-        on_delete=models.CASCADE,
-        related_name='messages'
-    )
-    role = models.CharField(
-        max_length=10,
-        choices=(('user', 'User'), ('model', 'Model'))
-    )
-    message = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        db_table = 'chat_messages'
-        ordering = ['created_at']
-    
-    def __str__(self):
-        return f"{self.role}: {self.message[:50]}..."
-
-
 class CommunityPost(models.Model):
     """Community post model for farmers to share information"""
     author = models.ForeignKey(
