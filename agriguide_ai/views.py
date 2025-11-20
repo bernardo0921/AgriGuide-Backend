@@ -14,6 +14,8 @@ from datetime import date
 import uuid
 from PIL import Image
 import io
+from django.http import HttpResponse
+
 
 # Configure Gemini API
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
@@ -513,3 +515,8 @@ def get_chat_history(request, session_id):
         return Response({
             'error': 'Session not found or access denied'
         }, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def tester(request):
+    return Response({"status": "available"})

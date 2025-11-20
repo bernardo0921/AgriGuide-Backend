@@ -2,7 +2,7 @@
 from django.urls import path
 from . import views
 from . import auth_views
-from . import community_views, lms_views, ai_tip_views
+from . import community_views, lms_views
 from . import deep_link_views
 
 urlpatterns = [
@@ -115,5 +115,9 @@ urlpatterns = [
     path('api/post/<int:post_id>/track-share/', 
          deep_link_views.track_share_analytics, 
          name='track_share'),
+
+
+     #connection tester
+    path("tester/", views.tester, name="tester"),
 
 ]
