@@ -40,7 +40,7 @@ class VerificationDocumentStorage(S3Boto3Storage):
 
 class ChatImageStorage(S3Boto3Storage):
     """S3 storage for chat images"""
-    location = 'chat_images'
+    location = 'media/chat_images'
     default_acl = None
     file_overwrite = False
     
