@@ -1,4 +1,4 @@
-# views.py (Fixed with Conversation Memory)
+# views.py (Updated with Language Support)
 import google.generativeai as genai
 from django.http import JsonResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, permission_classes
@@ -16,6 +16,16 @@ from PIL import Image
 import io
 from django.http import HttpResponse
 
+# Import prompts from separate file
+from .prompts import (
+    get_system_instruction,
+    get_vision_instruction,
+    get_language_directive,
+    get_supported_languages,
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES
+)
+
 
 # Configure Gemini API
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
@@ -30,106 +40,15 @@ genai.configure(api_key=GEMINI_API_KEY, transport='rest')
 text_model = genai.GenerativeModel('gemini-2.5-flash-lite')
 vision_model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
-# System instructions (keep your existing instructions)
-SYSTEM_INSTRUCTION = """
-You are **AgriGuide AI**, an expert agricultural advisor specializing in farming practices, crop management, pest control, soil health, irrigation, and sustainable agriculture. You provide personalized, context-aware advice to farmers and agricultural enthusiasts.
 
-## Core Identity
-- **Name**: AgriGuide AI
-- **Expertise**: Agriculture, farming, horticulture, agronomy, livestock management, sustainable farming
-- **Tone**: Friendly, professional, encouraging, and supportive
-- **Communication Style**: Clear, practical, and actionable advice with specific steps when possible
-
-## Memory Simulation Instructions
-
-To simulate memory across conversations:
-
-1. **Extract and Reference Context**: When users mention previous topics in the conversation history, acknowledge and reference them naturally.
-   - Example: "Based on what you mentioned earlier about your tomato plants..."
-
-2. **Build Upon Previous Advice**: If the user returns with updates, acknowledge the progression and build upon previous recommendations.
-
-3. **Maintain Consistency**: Keep track of details mentioned such as:
-   - Crop types and growth stages
-   - Farm location and climate
-   - Soil conditions
-   - Previous problems or challenges
-   - Farming methods (organic, conventional, etc.)
-
-4. **Personalize Responses**: Use information from previous messages to personalize advice.
-
-5. **Ask Clarifying Questions**: When important context is missing, ask specific questions.
-
-## Response Guidelines
-
-### Formatting for Better Readability
-- Use **bold** for important terms and key points
-- Use bullet points (•) for lists of items
-- Use numbered lists for sequential steps
-- Use headers (##) for major sections in long responses
-- Use `inline code` for technical terms, measurements, or chemical names
-
-### Response Structure
-1. **Acknowledge the Query**: Show you understand the question/problem
-2. **Provide Context**: Brief explanation of why this matters
-3. **Give Actionable Advice**: Step-by-step instructions when applicable
-4. **Add Preventive Tips**: Help avoid future issues
-5. **Follow-up**: Encourage users to update you on progress
-
-## Important Constraints
-1. **Safety First**: Always prioritize safe handling of chemicals, machinery, and livestock
-2. **Recommend Professional Help**: For serious diseases or large-scale problems, suggest consulting local agricultural extension services
-3. **Realistic Expectations**: Be honest about challenges and realistic timelines
-4. **Cost Awareness**: Consider budget constraints when recommending solutions
-
-## Conversational Memory Phrases
-Use these patterns to create the illusion of memory:
-- "Following up on your [previous topic]..."
-- "Since you mentioned you're growing [crop]..."
-- "Based on your earlier description of [situation]..."
-- "How did [previous recommendation] work out?"
-
-Remember: You are a trusted farming companion helping users succeed in their agricultural endeavors. Be helpful, be specific, and build rapport through contextual awareness!
-"""
-
-VISION_SYSTEM_INSTRUCTION = """
-You are **AgriGuide AI Vision Expert**, specializing in crop identification and disease detection from images.
-
-## Your Capabilities
-1. **Crop Identification**: Identify crops from images with confidence levels
-2. **Disease Detection**: Analyze plants for signs of disease, pests, or nutrient deficiencies
-3. **Health Assessment**: Evaluate overall plant health
-4. **Actionable Advice**: Provide specific treatment recommendations
-
-## Response Format
-
-When analyzing an image, structure your response as follows:
-
-### 🌱 Crop Identification
-- **Crop Name**: [Specific crop name]
-- **Confidence**: [High/Medium/Low]
-- **Growth Stage**: [Seedling/Vegetative/Flowering/Fruiting/Mature]
-
-### 🔍 Health Assessment
-- **Overall Health**: [Healthy/Concerning/Critical]
-- **Disease Detected**: [Yes/No]
-
-### ⚠️ Findings
-[Detailed description of what you observe]
-
-### 💊 Recommendations
-[Specific, actionable steps to address any issues]
-
-### 📋 Additional Information
-[Relevant facts about the crop, growing conditions, harvest time, etc.]
-
-## Guidelines
-- Be specific but concise
-- Prioritize safety in all recommendations
-- If uncertain, say so and suggest consulting local agricultural experts
-- Always provide preventive care tips
-- Consider organic and chemical treatment options
-"""
+def validate_language(language: str) -> str:
+    """Validate and return the language, defaulting if invalid"""
+    if not language:
+        return DEFAULT_LANGUAGE
+    lang = language.lower().strip()
+    if lang not in SUPPORTED_LANGUAGES:
+        return DEFAULT_LANGUAGE
+    return lang
 
 
 def build_conversation_history(chat_session, exclude_message_id=None):
@@ -146,16 +65,24 @@ def build_conversation_history(chat_session, exclude_message_id=None):
     
     history = []
     for msg in history_messages:
-        # Skip system messages or empty messages
         if not msg.message or msg.role not in ['user', 'model']:
             continue
-            
         history.append({
             'role': msg.role,
             'parts': [msg.message]
         })
     
     return history
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_available_languages(request):
+    """Return list of supported languages"""
+    return Response({
+        'languages': get_supported_languages(),
+        'default': DEFAULT_LANGUAGE
+    })
 
 
 @api_view(['POST'])
@@ -240,10 +167,12 @@ def test_connection(request):
 def chat_with_ai_stream(request):
     """
     Streaming endpoint for real-time typing animation with conversation memory
+    Now supports language parameter: 'english' or 'sesotho'
     """
     try:
         message = request.data.get('message', '').strip()
         session_id = request.data.get('session_id')
+        language = validate_language(request.data.get('language'))
         
         if not message:
             return Response({
@@ -276,24 +205,36 @@ def chat_with_ai_stream(request):
             message=message
         )
         
+        # Get language-specific system instruction
+        system_instruction = get_system_instruction(language)
+        
         # Generator function for streaming
         def generate_response():
             try:
-                # Build conversation history (excluding current message)
-                history = build_conversation_history(chat_session, exclude_message_id=user_message.id)
+                # Build conversation history
+                history = build_conversation_history(
+                    chat_session, 
+                    exclude_message_id=user_message.id
+                )
                 
-                print(f"📚 Loading {len(history)} previous messages for context")
+                print(f"📚 Loading {len(history)} previous messages | Language: {language}")
                 
-                # Start chat with history and system instruction
+                # Start chat with history
                 chat = text_model.start_chat(history=history)
                 
-                # Add system instruction as first message if history is empty
+                # Send system instruction if history is empty
                 if not history:
-                    chat.send_message(SYSTEM_INSTRUCTION)
+                    chat.send_message(system_instruction)
+                
+                # For subsequent messages, add language reminder if not English
+                prompt_with_language = message
+                if language != 'english' and history:
+                    lang_reminder = get_language_directive(language)
+                    prompt_with_language = f"{message}\n\n[Remember: {lang_reminder}]"
                 
                 # Generate streaming response
                 response = chat.send_message(
-                    message,
+                    prompt_with_language,
                     generation_config={
                         'temperature': 0.7,
                         'top_p': 0.8,
@@ -305,8 +246,8 @@ def chat_with_ai_stream(request):
                 
                 full_response = ""
                 
-                # Send session_id first
-                yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
+                # Send session_id and language first
+                yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id, 'language': language})}\n\n"
                 
                 # Stream chunks
                 for chunk in response:
@@ -314,17 +255,16 @@ def chat_with_ai_stream(request):
                         full_response += chunk.text
                         yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.text})}\n\n"
                 
-                # Save complete response to database
+                # Save complete response
                 ChatMessage.objects.create(
                     session=chat_session,
                     role='model',
                     message=full_response
                 )
                 
-                # Update session timestamp
                 chat_session.save()
                 
-                print(f"✅ Response saved. Session now has {chat_session.messages.count()} messages")
+                print(f"✅ Response saved in {language}. Session: {chat_session.messages.count()} messages")
                 
                 # Send completion signal
                 yield f"data: {json.dumps({'type': 'done', 'full_text': full_response})}\n\n"
@@ -354,6 +294,7 @@ def chat_with_ai_stream(request):
 def chat_with_ai(request):
     """
     Standard endpoint for image analysis with conversation memory
+    Now supports language parameter: 'english' or 'sesotho'
     """
     try:
         has_image = 'image' in request.FILES
@@ -361,6 +302,7 @@ def chat_with_ai(request):
         if has_image:
             message = request.data.get('message', '').strip()
             session_id = request.data.get('session_id')
+            language = validate_language(request.data.get('language'))
             image_file = request.FILES['image']
         else:
             return Response({
@@ -402,16 +344,22 @@ def chat_with_ai(request):
         if img.format == 'JPEG':
             img = img.convert('RGB')
         
-        # Build conversation history for context
-        history = build_conversation_history(chat_session, exclude_message_id=user_message.id)
+        # Build conversation history
+        history = build_conversation_history(
+            chat_session, 
+            exclude_message_id=user_message.id
+        )
+        
+        # Get language-specific vision instruction
+        vision_instruction = get_vision_instruction(language)
         
         # Create context-aware prompt
-        vision_prompt = f"{VISION_SYSTEM_INSTRUCTION}\n\n"
+        vision_prompt = f"{vision_instruction}\n\n"
         
         # Add conversation context if exists
         if history:
             vision_prompt += "Previous conversation context:\n"
-            for msg in history[-4:]:  # Last 4 messages for context
+            for msg in history[-4:]:
                 role = "User" if msg['role'] == 'user' else "AI"
                 vision_prompt += f"{role}: {msg['parts'][0][:200]}...\n"
             vision_prompt += "\n"
@@ -421,7 +369,7 @@ def chat_with_ai(request):
         
         vision_prompt += "Please analyze the image and provide detailed information."
         
-        print(f"📸 Analyzing image with {len(history)} messages of context")
+        print(f"📸 Analyzing image | Language: {language} | Context: {len(history)} messages")
         
         # Generate vision response
         response = vision_model.generate_content(
@@ -445,11 +393,12 @@ def chat_with_ai(request):
         
         chat_session.save()
         
-        print(f"✅ Image analysis complete. Session now has {chat_session.messages.count()} messages")
+        print(f"✅ Image analysis complete in {language}. Session: {chat_session.messages.count()} messages")
         
         return Response({
             'response': ai_response,
             'session_id': session_id,
+            'language': language,
             'image_url': user_message.image_url
         })
         
@@ -515,6 +464,7 @@ def get_chat_history(request, session_id):
         return Response({
             'error': 'Session not found or access denied'
         }, status=status.HTTP_404_NOT_FOUND)
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
