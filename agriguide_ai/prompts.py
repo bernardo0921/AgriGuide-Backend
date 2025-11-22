@@ -4,7 +4,15 @@ SUPPORTED_LANGUAGES = {
     'english': {
         'code': 'en',
         'name': 'English',
-        'directive': ''  # No extra directive needed for English
+        'directive': '''
+
+## CRITICAL LANGUAGE INSTRUCTION
+You MUST respond ENTIRELY in English language. 
+- All explanations, advice, and recommendations must be in English
+- Use clear, simple English that's easy to understand
+- Keep formatting (bullets, headers, bold) with all text in English
+''',
+
     },
     'sesotho': {
         'code': 'st',
@@ -142,6 +150,41 @@ When analyzing an image, structure your response as follows:
 """
 
 
+# Farming Tip System Instruction
+FARMING_TIP_PROMPT = """
+You are an expert agricultural advisor. Generate ONE practical, actionable farming tip.
+
+Requirements:
+- Keep it concise (2-3 sentences maximum, around 50-80 words)
+- Make it practical and actionable
+- Focus on one specific aspect (crop care, soil health, pest management, water conservation, etc.)
+- Use simple, clear language
+- Make it relevant for small to medium-scale farmers
+- Don't include greetings or sign-offs, just the tip itself
+
+Generate a unique farming tip now:
+"""
+
+
+# Default Fallback Tips (English and Sesotho)
+DEFAULT_FALLBACK_TIPS = {
+    'english': [
+        "Water your plants early in the morning to reduce water loss through evaporation. This also helps prevent fungal diseases that thrive in moist conditions during cooler evening hours.",
+        "Rotate your crops each season to prevent soil nutrient depletion and reduce pest buildup. For example, follow nitrogen-fixing legumes with heavy feeders like corn or tomatoes.",
+        "Apply mulch around your plants to retain soil moisture, regulate temperature, and suppress weeds. Organic mulches also improve soil health as they decompose.",
+        "Monitor your crops regularly for early signs of pests or diseases. Early detection allows for quicker intervention and prevents widespread damage to your harvest.",
+        "Test your soil pH annually to ensure optimal nutrient availability. Most crops thrive in slightly acidic to neutral soil (pH 6.0-7.0).",
+    ],
+    'sesotho': [
+        "Nosetsa dimela tsa hao hoseng ho hoseng ho fokotsa tahlehelo ea metsi ka ho fetoha mouoane. Sena se thusa hape ho thibela mafu a fungal a atang maemong a mongobo nakong ea mantsiboya a batang.",
+        "Feto-fetoha lijalo tsa hao sehla se seng le se seng ho thibela ho fella ha limatlafatsi tsa mobu le ho eketseha ha likokoanyana. Mohlala, latela linaoa tse matlafatsang nitrogen ka lijalo tse jang haholo joalo ka poone kapa tamati.",
+        "Kenya mulch ho potoloha dimela tsa hao ho boloka mongobo oa mobu, ho laola thempereichara le ho thibela joang. Li-mulch tsa tlhaho li boetse li ntlafatsa bophelo bo botle ba mobu ha li bola.",
+        "Hlahloba lijalo tsa hao kamehla ho bona matšoao a pele a likokoanyana kapa mafu. Phihlello ea pele e lumella ho kena ka potlako le ho thibela tšenyo e pharaletseng ho kotulo ea hau.",
+        "Lekola pH ea mobu oa hao selemo le selemo ho netefatsa ho fumaneha ha limatlafatsi hantle. Lijalo tse ngata li ata mabung a nang le asiti e fokolang ho ea ho neutral (pH 6.0-7.0).",
+    ]
+}
+
+
 def get_system_instruction(language: str = DEFAULT_LANGUAGE) -> str:
     """Get the complete system instruction with language directive"""
     base_instruction = SYSTEM_INSTRUCTION
@@ -152,5 +195,12 @@ def get_system_instruction(language: str = DEFAULT_LANGUAGE) -> str:
 def get_vision_instruction(language: str = DEFAULT_LANGUAGE) -> str:
     """Get the complete vision instruction with language directive"""
     base_instruction = VISION_SYSTEM_INSTRUCTION
+    language_directive = get_language_directive(language)
+    return base_instruction + language_directive
+
+
+def get_tip_instruction(language: str = DEFAULT_LANGUAGE) -> str:
+    """Get the farming tip instruction with language directive"""
+    base_instruction = FARMING_TIP_PROMPT
     language_directive = get_language_directive(language)
     return base_instruction + language_directive
