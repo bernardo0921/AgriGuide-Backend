@@ -3,8 +3,10 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.core.validators import RegexValidator
 from django.core.files.storage import default_storage
+from django.utils import timezone
+from datetime import timedelta
+import random
 from .storage_backends import ChatImageStorage 
-
 from .storage_backends import (
     ProfilePictureStorage,
     TutorialVideoStorage,
@@ -38,7 +40,7 @@ class User(AbstractUser):
     profile_picture = models.ImageField(
         storage=ProfilePictureStorage(),  # Use S3 storage
         blank=True,
-        null=True
+        null=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -52,6 +54,7 @@ class User(AbstractUser):
         related_name='agriguide_user_set',
         related_query_name='agriguide_user',
     )
+
     user_permissions = models.ManyToManyField(
         'auth.Permission',
         verbose_name='user permissions',
@@ -60,6 +63,7 @@ class User(AbstractUser):
         related_name='agriguide_user_set',
         related_query_name='agriguide_user',
     )
+    
     def save(self, *args, **kwargs):
         """Override save to handle S3 storage errors"""
         try:
@@ -364,3 +368,130 @@ class ChatMessage(models.Model):
         if self.image:
             return self.image.url
         return None
+
+class VerificationCode(models.Model):
+    """Store temporary 2FA verification codes"""
+    
+    PURPOSE_CHOICES = [
+        ('registration', 'Registration'),
+        ('login', 'Login'),
+        ('password_reset', 'Password Reset'),
+    ]
+    
+    email = models.EmailField()
+    code = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES)
+    
+    # Store registration data temporarily (for registration flow)
+    registration_data = models.JSONField(null=True, blank=True)
+    
+    # Attempt tracking
+    attempts = models.IntegerField(default=0)
+    max_attempts = models.IntegerField(default=3)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(null=True, blank=True)
+    
+    # Rate limiting
+    last_sent_at = models.DateTimeField(auto_now_add=True)
+    send_count = models.IntegerField(default=1)  # Track how many codes sent
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['email', 'purpose', 'verified_at']),
+            models.Index(fields=['expires_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.email} - {self.purpose} - {self.code}"
+    
+    @classmethod
+    def generate_code(cls):
+        """Generate a random 6-digit code"""
+        return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+    
+    @classmethod
+    def create_verification(cls, email, purpose, registration_data=None, expiry_minutes=5):
+        """
+        Create a new verification code
+        Returns (verification_code, created) tuple
+        """
+        # Check rate limiting - max 3 codes in 15 minutes
+        fifteen_min_ago = timezone.now() - timedelta(minutes=15)
+        recent_codes = cls.objects.filter(
+            email=email,
+            purpose=purpose,
+            created_at__gte=fifteen_min_ago
+        ).count()
+        
+        if recent_codes >= 3:
+            raise ValueError("Too many verification attempts. Please try again in 15 minutes.")
+        
+        # Delete any existing unverified codes for this email/purpose
+        cls.objects.filter(
+            email=email,
+            purpose=purpose,
+            verified_at__isnull=True
+        ).delete()
+        
+        # Create new verification code
+        code = cls.generate_code()
+        expires_at = timezone.now() + timedelta(minutes=expiry_minutes)
+        
+        verification = cls.objects.create(
+            email=email,
+            code=code,
+            purpose=purpose,
+            registration_data=registration_data,
+            expires_at=expires_at
+        )
+        
+        return verification, True
+    
+    def is_valid(self):
+        """Check if code is still valid"""
+        if self.verified_at:
+            return False  # Already used
+        
+        if timezone.now() > self.expires_at:
+            return False  # Expired
+        
+        if self.attempts >= self.max_attempts:
+            return False  # Too many attempts
+        
+        return True
+    
+    def verify(self, submitted_code):
+        """
+        Verify the submitted code
+        Returns (success, message) tuple
+        """
+        self.attempts += 1
+        self.save()
+        
+        if not self.is_valid():
+            if self.verified_at:
+                return False, "Code already used"
+            elif timezone.now() > self.expires_at:
+                return False, "Code expired"
+            elif self.attempts > self.max_attempts:
+                return False, "Too many incorrect attempts"
+        
+        if self.code == submitted_code:
+            self.verified_at = timezone.now()
+            self.save()
+            return True, "Verification successful"
+        
+        remaining = self.max_attempts - self.attempts
+        return False, f"Invalid code. {remaining} attempts remaining"
+    
+    @classmethod
+    def cleanup_expired(cls):
+        """Delete expired codes (run this periodically via cron/celery)"""
+        expired = cls.objects.filter(expires_at__lt=timezone.now())
+        count = expired.count()
+        expired.delete()
+        return count

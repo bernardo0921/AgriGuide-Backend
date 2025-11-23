@@ -14,6 +14,7 @@ from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -222,3 +223,13 @@ MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
 # Optional: Separate buckets for different file types
 # AWS_STORAGE_BUCKET_NAME_STATIC = 'your-static-bucket'
 # AWS_STORAGE_BUCKET_NAME_MEDIA = 'your-media-bucket'
+
+
+# Email Configuration
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')  # Your Gmail address
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')  # Your 16-character app password
+APP_NAME = os.getenv('APP_NAME', 'AgriGuide')

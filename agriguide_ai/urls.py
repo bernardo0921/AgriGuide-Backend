@@ -2,7 +2,7 @@
 from django.urls import path
 from . import views
 from . import auth_views
-from . import community_views, lms_views, ai_tip_views
+from . import community_views, lms_views, ai_tip_views, twofa_views
 from . import deep_link_views
 
 urlpatterns = [
@@ -122,5 +122,12 @@ urlpatterns = [
 
      #connection tester
      path("tester/", views.tester, name="tester"),
+
+      # 2FA Endpoints
+    path('auth/request-verification/', twofa_views.request_verification_code, name='request-verification'),
+    path('auth/verify-and-register/', twofa_views.verify_code_and_register, name='verify-and-register'),
+    path('auth/verify-and-login/', twofa_views.verify_code_and_login, name='verify-and-login'),
+    path('auth/resend-code/', twofa_views.resend_verification_code, name='resend-code'),
+
 
 ]

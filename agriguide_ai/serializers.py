@@ -2,7 +2,7 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
-from .models import User, FarmerProfile, ExtensionWorkerProfile, CommunityPost, PostLike, PostComment
+from .models import User, FarmerProfile, ExtensionWorkerProfile, CommunityPost, PostLike, PostComment, VerificationCode
 from .models import Tutorial
 import os
 
@@ -434,3 +434,135 @@ class TutorialSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         validated_data['uploader'] = request.user
         return super().create(validated_data)
+
+
+class RequestVerificationSerializer(serializers.Serializer):
+    """Request a verification code"""
+    email = serializers.EmailField()
+    purpose = serializers.ChoiceField(
+        choices=['registration', 'login'],
+        default='registration'
+    )
+    
+    # For registration, include user data
+    username = serializers.CharField(required=False)
+    password = serializers.CharField(write_only=True, required=False)
+    password_confirm = serializers.CharField(write_only=True, required=False)
+    first_name = serializers.CharField(required=False)
+    last_name = serializers.CharField(required=False)
+    phone_number = serializers.CharField(required=False)
+    profile_picture = serializers.ImageField(required=False)
+    user_type = serializers.ChoiceField(
+        choices=['farmer', 'extension_worker'],
+        required=False
+    )
+    
+    # Farmer-specific fields
+    farm_name = serializers.CharField(required=False)
+    farm_size = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    location = serializers.CharField(required=False)
+    region = serializers.CharField(required=False)
+    crops_grown = serializers.ListField(child=serializers.CharField(), required=False)
+    farming_method = serializers.CharField(required=False)
+    years_of_experience = serializers.IntegerField(required=False)
+    
+    # Extension worker fields
+    organization = serializers.CharField(required=False)
+    employee_id = serializers.CharField(required=False)
+    specialization = serializers.CharField(required=False)
+    regions_covered = serializers.ListField(child=serializers.CharField(), required=False)
+    verification_document = serializers.FileField(required=False)
+    
+    def validate(self, data):
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        
+        purpose = data.get('purpose')
+        email = data.get('email')
+        
+        if purpose == 'registration':
+            # Check if email already exists
+            from .models import User
+            if User.objects.filter(email=email).exists():
+                raise serializers.ValidationError({
+                    'email': 'This email is already registered'
+                })
+            
+            # Require basic fields for registration
+            required_fields = ['username', 'password', 'password_confirm', 'first_name', 'last_name', 'phone_number', 'user_type']
+            for field in required_fields:
+                if not data.get(field):
+                    raise serializers.ValidationError({
+                        field: f'{field} is required for registration'
+                    })
+            
+            # Check if username already exists
+            if User.objects.filter(username=data.get('username')).exists():
+                raise serializers.ValidationError({
+                    'username': 'This username is already taken'
+                })
+            
+            # Validate password match
+            if data.get('password') != data.get('password_confirm'):
+                raise serializers.ValidationError({
+                    'password': "Password fields didn't match."
+                })
+            
+            # Validate password strength
+            try:
+                validate_password(data.get('password'))
+            except DjangoValidationError as e:
+                raise serializers.ValidationError({
+                    'password': list(e.messages)
+                })
+            
+            # Validate user type specific fields
+            user_type = data.get('user_type')
+            if user_type == 'farmer':
+                farmer_required = ['farm_name', 'location', 'region']
+                for field in farmer_required:
+                    if not data.get(field):
+                        raise serializers.ValidationError({
+                            field: f'{field} is required for farmers'
+                        })
+            
+            elif user_type == 'extension_worker':
+                worker_required = ['organization', 'specialization']
+                for field in worker_required:
+                    if not data.get(field):
+                        raise serializers.ValidationError({
+                            field: f'{field} is required for extension workers'
+                        })
+        
+        elif purpose == 'login':
+            # Check if user exists
+            from .models import User
+            if not User.objects.filter(email=email).exists():
+                raise serializers.ValidationError({
+                    'email': 'No account found with this email'
+                })
+        
+        return data
+
+
+class VerifyCodeSerializer(serializers.Serializer):
+    """Verify a code"""
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6, min_length=6)
+    purpose = serializers.ChoiceField(
+        choices=['registration', 'login']
+    )
+    
+    def validate_code(self, value):
+        """Ensure code is 6 digits"""
+        if not value.isdigit():
+            raise serializers.ValidationError("Code must be 6 digits")
+        return value
+
+
+class ResendCodeSerializer(serializers.Serializer):
+    """Resend verification code"""
+    email = serializers.EmailField()
+    purpose = serializers.ChoiceField(
+        choices=['registration', 'login']
+    )
