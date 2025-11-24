@@ -198,7 +198,7 @@ CORS_ALLOW_HEADERS = [
 MICROSOFT_TENANT_ID = os.environ.get('MICROSOFT_TENANT_ID', '')
 MICROSOFT_CLIENT_ID = os.environ.get('MICROSOFT_CLIENT_ID', '')
 MICROSOFT_CLIENT_SECRET = os.environ.get('MICROSOFT_CLIENT_SECRET', '')
-MICROSOFT_DEFAULT_SENDER = os.environ.get('MICROSOFT_DEFAULT_SENDER', 'noreply@yourdomain.com')
+MICROSOFT_DEFAULT_SENDER = os.environ.get('MICROSOFT_DEFAULT_SENDER', 'info@ideationaxis.com')
 APP_NAME = 'AgriGuide'
 # Email timeout settings
 EMAIL_TIMEOUT = 30  # seconds
