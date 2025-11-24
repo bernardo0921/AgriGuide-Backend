@@ -200,7 +200,7 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'ephraimbernard7@gmail.com')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'wrongpassword')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER, 'smtp.gmail.com')
+DEFAULT_FROM_EMAIL =  'smtp.gmail.com'
 APP_NAME = os.environ.get('APP_NAME', 'AgriGuide')
 
 # Email timeout settings
