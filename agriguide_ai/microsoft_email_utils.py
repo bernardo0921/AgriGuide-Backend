@@ -21,7 +21,7 @@ class MicrosoftGraphEmailClient:
         self.tenant_id = getattr(settings, 'MICROSOFT_TENANT_ID', '')
         self.client_id = getattr(settings, 'MICROSOFT_CLIENT_ID', '')
         self.client_secret = getattr(settings, 'MICROSOFT_CLIENT_SECRET', '')
-        self.default_sender = getattr(settings, 'MICROSOFT_DEFAULT_SENDER', 'noreply@yourdomain.com')
+        self.default_sender = getattr(settings, 'MICROSOFT_DEFAULT_SENDER', 'info@ideationaxis.com')
         self.app_name = getattr(settings, 'APP_NAME', 'AgriGuide')
         
         self._access_token = None
