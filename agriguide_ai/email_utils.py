@@ -60,7 +60,7 @@ The {app_name} Team
 
 def send_welcome_email(recipient_email, username):
     """Send welcome email after successful registration"""
-    sender_email = getattr(settings, 'EMAIL_HOST_USER', '')
+    sender_email = 'ephraimbernard77@gmail.com'
     sender_password = getattr(settings, 'EMAIL_HOST_PASSWORD', '')
     app_name = getattr(settings, 'APP_NAME', 'AgriConnect')
     
