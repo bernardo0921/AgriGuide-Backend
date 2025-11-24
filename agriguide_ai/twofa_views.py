@@ -10,7 +10,7 @@ from django.db import transaction
 from decimal import Decimal
 from .models import VerificationCode, User, FarmerProfile, ExtensionWorkerProfile
 from .serializers import UserSerializer
-from .email_utils import send_verification_email, send_welcome_email
+from .microsoft_email_utils import send_verification_email, send_welcome_email
 import logging
 
 logger = logging.getLogger(__name__)

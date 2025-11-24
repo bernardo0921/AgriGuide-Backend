@@ -194,15 +194,12 @@ CORS_ALLOW_HEADERS = [
 
 # ==================== EMAIL CONFIGURATION (2FA) ====================
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'ephraimbernard7@gmail.com')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'wrongpassword')
-DEFAULT_FROM_EMAIL =  'smtp.gmail.com'
-APP_NAME = os.environ.get('APP_NAME', 'AgriGuide')
-
+# Microsoft Graph API Settings (Office 365 Email)
+MICROSOFT_TENANT_ID = os.environ.get('MICROSOFT_TENANT_ID', '')
+MICROSOFT_CLIENT_ID = os.environ.get('MICROSOFT_CLIENT_ID', '')
+MICROSOFT_CLIENT_SECRET = os.environ.get('MICROSOFT_CLIENT_SECRET', '')
+MICROSOFT_DEFAULT_SENDER = os.environ.get('MICROSOFT_DEFAULT_SENDER', 'noreply@yourdomain.com')
+APP_NAME = 'AgriGuide'
 # Email timeout settings
 EMAIL_TIMEOUT = 30  # seconds
 
