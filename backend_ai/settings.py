@@ -410,17 +410,3 @@ if not DEBUG:
             f"⚠️  Missing required environment variables: {', '.join(missing_vars)}",
             RuntimeWarning
         )
-
-# ==================== PRINT CONFIGURATION STATUS ====================
-
-if DEBUG:
-    print("\n" + "="*60)
-    print("🚀 Django Configuration Status")
-    print("="*60)
-    print(f"📍 Environment: {'Development' if DEBUG else 'Production'}")
-    print(f"🗄️  Database: {DATABASES['default']['ENGINE'].split('.')[-1]}")
-    print(f"📧 Email Backend: {EMAIL_BACKEND.split('.')[-1]}")
-    print(f"📦 Media Storage: {'AWS S3' if 'S3' in DEFAULT_FILE_STORAGE else 'Local'}")
-    print(f"🔑 Gemini API: {'✅ Configured' if GEMINI_API_KEY else '❌ Not configured'}")
-    print(f"📨 Email Config: {'✅ Configured' if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD else '❌ Not configured'}")
-    print("="*60 + "\n")
