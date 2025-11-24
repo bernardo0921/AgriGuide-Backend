@@ -124,10 +124,10 @@ urlpatterns = [
      path("tester/", views.tester, name="tester"),
 
       # 2FA Endpoints
-    path('auth/request-verification/', twofa_views.request_verification_code, name='request-verification'),
-    path('auth/verify-and-register/', twofa_views.verify_code_and_register, name='verify-and-register'),
-    path('auth/verify-and-login/', twofa_views.verify_code_and_login, name='verify-and-login'),
-    path('auth/resend-code/', twofa_views.resend_verification_code, name='resend-code'),
+    path('api/auth/request-verification/', twofa_views.request_verification_code, name='request-verification'),
+    path('api/auth/verify-and-register/', twofa_views.verify_code_and_register, name='verify-and-register'),
+    path('api/auth/verify-and-login/', twofa_views.verify_code_and_login, name='verify-and-login'),
+    path('api/auth/resend-code/', twofa_views.resend_verification_code, name='resend-code'),
 
 
 ]
