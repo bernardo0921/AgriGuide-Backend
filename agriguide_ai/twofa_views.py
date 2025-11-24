@@ -184,7 +184,7 @@ def verify_code_and_register(request):
                 FarmerProfile.objects.create(
                     user=user,
                     farm_name=farmer_data.get('farm_name', ''),
-                    farm_size=farmer_data.get('farm_size', 0),
+                    farm_size=Decimal(farmer_data.get('farm_size', '0')),  # Convert back to Decimal
                     location=farmer_data.get('location', ''),
                     region=farmer_data.get('region', ''),
                     crops_grown=farmer_data.get('crops_grown', []),
@@ -378,4 +378,88 @@ def resend_verification_code(request):
         logger.error(f"Resend error: {str(e)}")
         return Response({
             'error': 'Failed to resend code'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def complete_extension_worker_registration(request):
+    """
+    Complete extension worker registration with file upload
+    """
+    email = request.data.get('email')
+    code = request.data.get('code')
+    
+    if not email or not code:
+        return Response({
+            'error': 'Email and code are required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Verify code
+        verification = VerificationCode.objects.filter(
+            email=email,
+            purpose='registration',
+            verified_at__isnull=True
+        ).order_by('-created_at').first()
+        
+        if not verification:
+            return Response({
+                'error': 'No verification code found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        success, message = verification.verify(code)
+        if not success:
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get stored registration data
+        registration_data = verification.registration_data
+        if not registration_data:
+            return Response({
+                'error': 'Registration data not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        with transaction.atomic():
+            # Create user
+            user = User.objects.create_user(
+                username=registration_data['username'],
+                email=registration_data['email'],
+                password=registration_data['password'],
+                first_name=registration_data['first_name'],
+                last_name=registration_data['last_name'],
+                phone_number=registration_data.get('phone_number', ''),
+                user_type='extension_worker'
+            )
+            
+            # Create extension worker profile
+            worker_data = registration_data.get('extension_worker_profile', {})
+            profile = ExtensionWorkerProfile.objects.create(
+                user=user,
+                organization=worker_data.get('organization', ''),
+                employee_id=worker_data.get('employee_id', ''),
+                specialization=worker_data.get('specialization', ''),
+                regions_covered=worker_data.get('regions_covered', []),
+                is_approved=False
+            )
+            
+            # Handle uploaded file if present
+            verification_doc = request.FILES.get('verification_document')
+            if verification_doc:
+                profile.verification_document = verification_doc
+                profile.save()
+            
+            # Create token
+            token = Token.objects.create(user=user)
+            
+            send_welcome_email(email, user.username)
+            
+            return Response({
+                'message': 'Registration successful!',
+                'user': UserSerializer(user).data,
+                'token': token.key
+            }, status=status.HTTP_201_CREATED)
+            
+    except Exception as e:
+        logger.error(f"Extension worker registration error: {str(e)}")
+        return Response({
+            'error': 'Registration failed'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

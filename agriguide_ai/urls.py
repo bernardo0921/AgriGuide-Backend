@@ -37,6 +37,10 @@ urlpatterns = [
           auth_views.login_view, 
           name='login'),
      
+     path('api/auth/complete-extension-worker-registration/', 
+     twofa_views.complete_extension_worker_registration, 
+     name='complete_extension_worker_registration'),
+     
      # ==================== PROFILE & TOKEN ====================
      path('api/auth/logout/', 
           auth_views.logout_view, 
