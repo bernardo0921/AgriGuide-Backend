@@ -473,78 +473,30 @@ class RequestVerificationSerializer(serializers.Serializer):
     regions_covered = serializers.ListField(child=serializers.CharField(), required=False)
     verification_document = serializers.FileField(required=False)
     
+    
+
     def validate(self, data):
+        print("🔍 STARTING VALIDATION")
+        print(f"📦 Data received: {data}")
+        
         from django.contrib.auth.password_validation import validate_password
         from django.core.exceptions import ValidationError as DjangoValidationError
         
         purpose = data.get('purpose')
         email = data.get('email')
         
+        print(f"✉️ Email: {email}, Purpose: {purpose}")
+        
         if purpose == 'registration':
-            # Check if email already exists
+            print("🔍 Checking if email exists...")
             from .models import User
             if User.objects.filter(email=email).exists():
+                print("❌ Email already exists!")
                 raise serializers.ValidationError({
                     'email': 'This email is already registered'
                 })
             
-            # Require basic fields for registration
-            required_fields = ['username', 'password', 'password_confirm', 'first_name', 'last_name', 'phone_number', 'user_type']
-            for field in required_fields:
-                if not data.get(field):
-                    raise serializers.ValidationError({
-                        field: f'{field} is required for registration'
-                    })
-            
-            # Check if username already exists
-            if User.objects.filter(username=data.get('username')).exists():
-                raise serializers.ValidationError({
-                    'username': 'This username is already taken'
-                })
-            
-            # Validate password match
-            if data.get('password') != data.get('password_confirm'):
-                raise serializers.ValidationError({
-                    'password': "Password fields didn't match."
-                })
-            
-            # Validate password strength
-            try:
-                validate_password(data.get('password'))
-            except DjangoValidationError as e:
-                raise serializers.ValidationError({
-                    'password': list(e.messages)
-                })
-            
-            # Validate user type specific fields
-            user_type = data.get('user_type')
-            if user_type == 'farmer':
-                farmer_required = ['farm_name', 'location', 'region']
-                for field in farmer_required:
-                    if not data.get(field):
-                        raise serializers.ValidationError({
-                            field: f'{field} is required for farmers'
-                        })
-            
-            elif user_type == 'extension_worker':
-                worker_required = ['organization', 'specialization']
-                for field in worker_required:
-                    if not data.get(field):
-                        raise serializers.ValidationError({
-                            field: f'{field} is required for extension workers'
-                        })
-        
-        elif purpose == 'login':
-            # Check if user exists
-            from .models import User
-            if not User.objects.filter(email=email).exists():
-                raise serializers.ValidationError({
-                    'email': 'No account found with this email'
-                })
-        
-        return data
-
-
+            print("✅ Email is unique")
 class VerifyCodeSerializer(serializers.Serializer):
     """Verify a code"""
     email = serializers.EmailField()

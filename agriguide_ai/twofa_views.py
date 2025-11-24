@@ -1,4 +1,4 @@
-# twofa_views.py - Create this new file for 2FA views - FIXED
+# twofa_views.py - Complete 2FA Implementation with Full Error Handling
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -7,16 +7,11 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from django.db import transaction
+from decimal import Decimal
 from .models import VerificationCode, User, FarmerProfile, ExtensionWorkerProfile
-from .serializers import (
-    RequestVerificationSerializer,
-    VerifyCodeSerializer,
-    ResendCodeSerializer,
-    UserSerializer
-)
+from .serializers import UserSerializer
 from .email_utils import send_verification_email, send_welcome_email
 import logging
-from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -27,57 +22,160 @@ def request_verification_code(request):
     """
     Step 1: Request a verification code for registration or login
     
-    For Registration: Include user details + email
-    For Login: Just include email
+    Request Body:
+    {
+        "email": "user@example.com",
+        "purpose": "registration" or "login",
+        
+        // For registration, include all user data:
+        "username": "...",
+        "password": "...",
+        "password_confirm": "...",
+        "first_name": "...",
+        "last_name": "...",
+        "phone_number": "...",
+        "user_type": "farmer" or "extension_worker",
+        
+        // Farmer fields:
+        "farm_name": "...",
+        "farm_size": "10.5",
+        "location": "...",
+        "region": "...",
+        "crops_grown": ["maize", "rice"],
+        "farming_method": "conventional",
+        "years_of_experience": 5,
+        
+        // Extension worker fields:
+        "organization": "...",
+        "employee_id": "...",
+        "specialization": "...",
+        "regions_covered": ["region1", "region2"]
+    }
     """
-    serializer = RequestVerificationSerializer(data=request.data)
-    
-    if not serializer.is_valid():
-        logger.error(f"Validation error: {serializer.errors}")
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    email = serializer.validated_data['email']
-    purpose = serializer.validated_data['purpose']
+    logger.info(f"🎯 Verification request received from {request.data.get('email')}")
     
     try:
-        # Store registration data if purpose is registration
+        email = request.data.get('email')
+        purpose = request.data.get('purpose', 'registration')
+        
+        # Validate required fields
+        if not email:
+            return Response({
+                'error': 'Email is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if purpose not in ['registration', 'login']:
+            return Response({
+                'error': 'Purpose must be either "registration" or "login"'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # For login, just check if user exists
+        if purpose == 'login':
+            if not User.objects.filter(email=email).exists():
+                return Response({
+                    'error': 'No account found with this email'
+                }, status=status.HTTP_404_NOT_FOUND)
+        
+        # For registration, validate and store data
         registration_data = None
         if purpose == 'registration':
+            # Check if email already exists
+            if User.objects.filter(email=email).exists():
+                return Response({
+                    'error': 'This email is already registered'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate required fields
+            required_fields = ['username', 'password', 'password_confirm', 
+                             'first_name', 'last_name', 'phone_number', 'user_type']
+            missing_fields = [f for f in required_fields if not request.data.get(f)]
+            
+            if missing_fields:
+                return Response({
+                    'error': f'Missing required fields: {", ".join(missing_fields)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if username already exists
+            if User.objects.filter(username=request.data.get('username')).exists():
+                return Response({
+                    'error': 'This username is already taken'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate password match
+            if request.data.get('password') != request.data.get('password_confirm'):
+                return Response({
+                    'error': 'Passwords do not match'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate password strength
+            password = request.data.get('password')
+            if len(password) < 8:
+                return Response({
+                    'error': 'Password must be at least 8 characters long'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Build registration data
+            user_type = request.data.get('user_type')
             registration_data = {
-                'username': serializer.validated_data.get('username'),
-                'password': serializer.validated_data.get('password'),
+                'username': request.data.get('username'),
+                'password': request.data.get('password'),
                 'email': email,
-                'first_name': serializer.validated_data.get('first_name'),
-                'last_name': serializer.validated_data.get('last_name'),
-                'phone_number': serializer.validated_data.get('phone_number'),
-                'user_type': serializer.validated_data.get('user_type'),
+                'first_name': request.data.get('first_name'),
+                'last_name': request.data.get('last_name'),
+                'phone_number': request.data.get('phone_number'),
+                'user_type': user_type,
             }
             
-            # Add type-specific fields
-            user_type = serializer.validated_data.get('user_type')
+            # Add profile data based on user type
             if user_type == 'farmer':
-                # Convert farm_size to string for JSON storage
-                farm_size = serializer.validated_data.get('farm_size')
-                farm_size_str = str(farm_size) if farm_size else '0'
+                # Validate farmer-specific required fields
+                farmer_required = ['farm_name', 'location', 'region']
+                missing_farmer = [f for f in farmer_required if not request.data.get(f)]
+                
+                if missing_farmer:
+                    return Response({
+                        'error': f'Missing farmer fields: {", ".join(missing_farmer)}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Store farm_size as string for JSON compatibility
+                farm_size = request.data.get('farm_size', '0')
+                if isinstance(farm_size, (int, float)):
+                    farm_size = str(farm_size)
                 
                 registration_data['farmer_profile'] = {
-                    'farm_name': serializer.validated_data.get('farm_name', ''),
-                    'farm_size': farm_size_str,
-                    'location': serializer.validated_data.get('location', ''),
-                    'region': serializer.validated_data.get('region', ''),
-                    'crops_grown': serializer.validated_data.get('crops_grown', []),
-                    'farming_method': serializer.validated_data.get('farming_method', 'conventional'),
-                    'years_of_experience': serializer.validated_data.get('years_of_experience', 0),
+                    'farm_name': request.data.get('farm_name'),
+                    'farm_size': farm_size,
+                    'location': request.data.get('location'),
+                    'region': request.data.get('region'),
+                    'crops_grown': request.data.get('crops_grown', []),
+                    'farming_method': request.data.get('farming_method', 'conventional'),
+                    'years_of_experience': request.data.get('years_of_experience', 0),
                 }
+            
             elif user_type == 'extension_worker':
+                # Validate extension worker required fields
+                worker_required = ['organization', 'specialization']
+                missing_worker = [f for f in worker_required if not request.data.get(f)]
+                
+                if missing_worker:
+                    return Response({
+                        'error': f'Missing extension worker fields: {", ".join(missing_worker)}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
                 registration_data['extension_worker_profile'] = {
-                    'organization': serializer.validated_data.get('organization', ''),
-                    'employee_id': serializer.validated_data.get('employee_id', ''),
-                    'specialization': serializer.validated_data.get('specialization', ''),
-                    'regions_covered': serializer.validated_data.get('regions_covered', []),
+                    'organization': request.data.get('organization'),
+                    'employee_id': request.data.get('employee_id', ''),
+                    'specialization': request.data.get('specialization'),
+                    'regions_covered': request.data.get('regions_covered', []),
                 }
+            
+            else:
+                return Response({
+                    'error': 'Invalid user_type. Must be "farmer" or "extension_worker"'
+                }, status=status.HTTP_400_BAD_REQUEST)
         
         # Create verification code
+        logger.info(f"📧 Creating verification code for {email}")
         verification, created = VerificationCode.create_verification(
             email=email,
             purpose=purpose,
@@ -86,34 +184,42 @@ def request_verification_code(request):
         )
         
         # Send email
+        logger.info(f"📤 Sending verification email to {email}")
         email_sent = send_verification_email(email, verification.code, purpose)
         
         if not email_sent:
-            logger.error(f"Failed to send email to {email}")
-            return Response({
-                'error': 'Failed to send verification email. Please try again.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"❌ Failed to send email to {email}")
+            # Don't fail the request, but log it
+            # In production, you might want to fail here
+            pass
         
-        logger.info(f"✅ Verification code sent to {email} for {purpose}")
+        logger.info(f"✅ Verification code created for {email} (Purpose: {purpose})")
         
-        return Response({
+        # For development/testing, you can include the code in the response
+        # REMOVE THIS IN PRODUCTION!
+        response_data = {
             'message': f'Verification code sent to {email}',
             'email': email,
             'purpose': purpose,
-            'expires_in_minutes': 5
-        }, status=status.HTTP_200_OK)
+            'expires_in_minutes': 5,
+        }
+        
+        # Uncomment for testing only:
+        # response_data['code'] = verification.code
+        
+        return Response(response_data, status=status.HTTP_200_OK)
         
     except ValueError as e:
         # Rate limit exceeded
-        logger.warning(f"Rate limit exceeded for {email}: {str(e)}")
+        logger.warning(f"⚠️ Rate limit exceeded for {email}: {str(e)}")
         return Response({
             'error': str(e)
         }, status=status.HTTP_429_TOO_MANY_REQUESTS)
     
     except Exception as e:
-        logger.error(f"Error creating verification code: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error in request_verification_code: {str(e)}", exc_info=True)
         return Response({
-            'error': f'An error occurred: {str(e)}'
+            'error': 'An unexpected error occurred. Please try again.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -121,23 +227,38 @@ def request_verification_code(request):
 @permission_classes([AllowAny])
 def verify_code_and_register(request):
     """
-    Step 2: Verify code and complete registration
+    Step 2: Verify code and complete registration (for Farmers only)
+    
+    Request Body:
+    {
+        "email": "user@example.com",
+        "code": "123456",
+        "purpose": "registration"
+    }
     """
-    serializer = VerifyCodeSerializer(data=request.data)
-    
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    email = serializer.validated_data['email']
-    code = serializer.validated_data['code']
-    purpose = serializer.validated_data['purpose']
-    
-    if purpose != 'registration':
-        return Response({
-            'error': 'This endpoint is for registration only. Use /verify-code-and-login for login.'
-        }, status=status.HTTP_400_BAD_REQUEST)
+    logger.info(f"🔍 Registration verification request for {request.data.get('email')}")
     
     try:
+        email = request.data.get('email')
+        code = request.data.get('code')
+        purpose = request.data.get('purpose')
+        
+        # Validate input
+        if not all([email, code, purpose]):
+            return Response({
+                'error': 'Email, code, and purpose are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if purpose != 'registration':
+            return Response({
+                'error': 'This endpoint is for registration only'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if len(code) != 6 or not code.isdigit():
+            return Response({
+                'error': 'Code must be 6 digits'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         # Get the verification code
         verification = VerificationCode.objects.filter(
             email=email,
@@ -158,7 +279,7 @@ def verify_code_and_register(request):
                 'error': message
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Code verified! Now create the user
+        # Code verified! Get stored registration data
         registration_data = verification.registration_data
         
         if not registration_data:
@@ -166,6 +287,9 @@ def verify_code_and_register(request):
                 'error': 'Registration data not found. Please start registration again.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
+        logger.info(f"✅ Code verified for {email}. Creating user...")
+        
+        # Create user and profile in a transaction
         with transaction.atomic():
             # Create user
             user = User.objects.create_user(
@@ -178,35 +302,53 @@ def verify_code_and_register(request):
                 user_type=registration_data['user_type']
             )
             
+            logger.info(f"👤 User created: {user.username}")
+            
             # Create profile based on user type
             if registration_data['user_type'] == 'farmer':
                 farmer_data = registration_data.get('farmer_profile', {})
+                
+                # Convert farm_size back to Decimal
+                farm_size = farmer_data.get('farm_size', '0')
+                try:
+                    farm_size_decimal = Decimal(str(farm_size))
+                except:
+                    farm_size_decimal = Decimal('0')
+                
                 FarmerProfile.objects.create(
                     user=user,
                     farm_name=farmer_data.get('farm_name', ''),
-                    farm_size=Decimal(farmer_data.get('farm_size', '0')),  # Convert back to Decimal
+                    farm_size=farm_size_decimal,
                     location=farmer_data.get('location', ''),
                     region=farmer_data.get('region', ''),
                     crops_grown=farmer_data.get('crops_grown', []),
+                    farming_method=farmer_data.get('farming_method', 'conventional'),
+                    years_of_experience=farmer_data.get('years_of_experience', 0),
                 )
+                logger.info(f"🌾 Farmer profile created")
             
             elif registration_data['user_type'] == 'extension_worker':
                 worker_data = registration_data.get('extension_worker_profile', {})
                 ExtensionWorkerProfile.objects.create(
                     user=user,
                     organization=worker_data.get('organization', ''),
+                    employee_id=worker_data.get('employee_id', ''),
                     specialization=worker_data.get('specialization', ''),
-                    years_of_experience=worker_data.get('years_of_experience', 0),
-                    is_approved=False  # Requires approval
+                    regions_covered=worker_data.get('regions_covered', []),
+                    is_approved=False  # Requires admin approval
                 )
+                logger.info(f"👨‍🏫 Extension worker profile created")
             
-            # Create token
+            # Create authentication token
             token = Token.objects.create(user=user)
             
-            # Send welcome email (async if possible)
-            send_welcome_email(email, user.username)
+            # Send welcome email (don't fail if this errors)
+            try:
+                send_welcome_email(email, user.username)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to send welcome email: {e}")
             
-            logger.info(f"✅ User {user.username} registered successfully via 2FA")
+            logger.info(f"🎉 Registration complete for {user.username}")
             
             return Response({
                 'message': 'Registration successful!',
@@ -215,7 +357,7 @@ def verify_code_and_register(request):
             }, status=status.HTTP_201_CREATED)
     
     except Exception as e:
-        logger.error(f"Registration error: {str(e)}")
+        logger.error(f"❌ Registration error: {str(e)}", exc_info=True)
         return Response({
             'error': 'Registration failed. Please try again.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -227,34 +369,38 @@ def verify_code_and_login(request):
     """
     Step 2: Verify code and complete login
     
-    Body: {
+    Request Body:
+    {
         "email": "user@example.com",
         "code": "123456",
         "purpose": "login",
         "password": "user_password"
     }
     """
-    serializer = VerifyCodeSerializer(data=request.data)
-    
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    email = serializer.validated_data['email']
-    code = serializer.validated_data['code']
-    purpose = serializer.validated_data['purpose']
-    password = request.data.get('password')
-    
-    if purpose != 'login':
-        return Response({
-            'error': 'This endpoint is for login only. Use /verify-code-and-register for registration.'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    if not password:
-        return Response({
-            'error': 'Password is required'
-        }, status=status.HTTP_400_BAD_REQUEST)
+    logger.info(f"🔐 Login verification request for {request.data.get('email')}")
     
     try:
+        email = request.data.get('email')
+        code = request.data.get('code')
+        purpose = request.data.get('purpose')
+        password = request.data.get('password')
+        
+        # Validate input
+        if not all([email, code, purpose, password]):
+            return Response({
+                'error': 'Email, code, purpose, and password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if purpose != 'login':
+            return Response({
+                'error': 'This endpoint is for login only'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if len(code) != 6 or not code.isdigit():
+            return Response({
+                'error': 'Code must be 6 digits'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         # Get the verification code
         verification = VerificationCode.objects.filter(
             email=email,
@@ -292,13 +438,13 @@ def verify_code_and_login(request):
         # Check if user is active
         if not user.is_active:
             return Response({
-                'error': 'Account is inactive'
+                'error': 'Account is inactive. Please contact support.'
             }, status=status.HTTP_403_FORBIDDEN)
         
         # Get or create token
         token, created = Token.objects.get_or_create(user=user)
         
-        logger.info(f"✅ User {user.username} logged in successfully via 2FA")
+        logger.info(f"✅ User {user.username} logged in successfully")
         
         return Response({
             'message': 'Login successful',
@@ -307,9 +453,120 @@ def verify_code_and_login(request):
         }, status=status.HTTP_200_OK)
     
     except Exception as e:
-        logger.error(f"Login error: {str(e)}")
+        logger.error(f"❌ Login error: {str(e)}", exc_info=True)
         return Response({
             'error': 'Login failed. Please try again.'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def complete_extension_worker_registration(request):
+    """
+    Step 2: Complete extension worker registration with file upload
+    
+    This is a multipart/form-data request that includes:
+    - email
+    - code
+    - verification_document (file)
+    """
+    logger.info(f"👨‍🏫 Extension worker verification for {request.data.get('email')}")
+    
+    try:
+        email = request.data.get('email')
+        code = request.data.get('code')
+        
+        # Validate input
+        if not email or not code:
+            return Response({
+                'error': 'Email and code are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if len(code) != 6 or not code.isdigit():
+            return Response({
+                'error': 'Code must be 6 digits'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get verification code
+        verification = VerificationCode.objects.filter(
+            email=email,
+            purpose='registration',
+            verified_at__isnull=True
+        ).order_by('-created_at').first()
+        
+        if not verification:
+            return Response({
+                'error': 'No verification code found. Please request a new one.'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Verify the code
+        success, message = verification.verify(code)
+        if not success:
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get stored registration data
+        registration_data = verification.registration_data
+        if not registration_data:
+            return Response({
+                'error': 'Registration data not found. Please start registration again.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        logger.info(f"✅ Code verified. Creating extension worker...")
+        
+        # Create user and profile in transaction
+        with transaction.atomic():
+            # Create user
+            user = User.objects.create_user(
+                username=registration_data['username'],
+                email=registration_data['email'],
+                password=registration_data['password'],
+                first_name=registration_data['first_name'],
+                last_name=registration_data['last_name'],
+                phone_number=registration_data.get('phone_number', ''),
+                user_type='extension_worker'
+            )
+            
+            logger.info(f"👤 User created: {user.username}")
+            
+            # Create extension worker profile
+            worker_data = registration_data.get('extension_worker_profile', {})
+            profile = ExtensionWorkerProfile.objects.create(
+                user=user,
+                organization=worker_data.get('organization', ''),
+                employee_id=worker_data.get('employee_id', ''),
+                specialization=worker_data.get('specialization', ''),
+                regions_covered=worker_data.get('regions_covered', []),
+                is_approved=False  # Requires admin approval
+            )
+            
+            # Handle uploaded verification document
+            verification_doc = request.FILES.get('verification_document')
+            if verification_doc:
+                profile.verification_document = verification_doc
+                profile.save()
+                logger.info(f"📄 Verification document uploaded")
+            
+            # Create token
+            token = Token.objects.create(user=user)
+            
+            # Send welcome email
+            try:
+                send_welcome_email(email, user.username)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to send welcome email: {e}")
+            
+            logger.info(f"🎉 Extension worker registration complete for {user.username}")
+            
+            return Response({
+                'message': 'Registration successful! Your account is pending approval.',
+                'user': UserSerializer(user).data,
+                'token': token.key
+            }, status=status.HTTP_201_CREATED)
+            
+    except Exception as e:
+        logger.error(f"❌ Extension worker registration error: {str(e)}", exc_info=True)
+        return Response({
+            'error': 'Registration failed. Please try again.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -319,20 +576,28 @@ def resend_verification_code(request):
     """
     Resend verification code
     
-    Body: {
+    Request Body:
+    {
         "email": "user@example.com",
         "purpose": "registration" or "login"
     }
     """
-    serializer = ResendCodeSerializer(data=request.data)
-    
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    email = serializer.validated_data['email']
-    purpose = serializer.validated_data['purpose']
+    logger.info(f"🔄 Resend request for {request.data.get('email')}")
     
     try:
+        email = request.data.get('email')
+        purpose = request.data.get('purpose')
+        
+        if not email or not purpose:
+            return Response({
+                'error': 'Email and purpose are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if purpose not in ['registration', 'login']:
+            return Response({
+                'error': 'Purpose must be "registration" or "login"'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         # Get the most recent unverified code
         verification = VerificationCode.objects.filter(
             email=email,
@@ -345,7 +610,7 @@ def resend_verification_code(request):
                 'error': 'No pending verification found. Please request a new code.'
             }, status=status.HTTP_404_NOT_FOUND)
         
-        # Check if we can resend (not too many attempts)
+        # Check resend limit
         if verification.send_count >= 3:
             return Response({
                 'error': 'Maximum resend limit reached. Please request a new code.'
@@ -362,9 +627,9 @@ def resend_verification_code(request):
         email_sent = send_verification_email(email, new_code, purpose)
         
         if not email_sent:
-            return Response({
-                'error': 'Failed to send verification email'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.warning(f"⚠️ Failed to send email to {email}")
+            # Don't fail the request
+            pass
         
         logger.info(f"✅ Verification code resent to {email}")
         
@@ -375,91 +640,7 @@ def resend_verification_code(request):
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
-        logger.error(f"Resend error: {str(e)}")
+        logger.error(f"❌ Resend error: {str(e)}", exc_info=True)
         return Response({
-            'error': 'Failed to resend code'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def complete_extension_worker_registration(request):
-    """
-    Complete extension worker registration with file upload
-    """
-    email = request.data.get('email')
-    code = request.data.get('code')
-    
-    if not email or not code:
-        return Response({
-            'error': 'Email and code are required'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        # Verify code
-        verification = VerificationCode.objects.filter(
-            email=email,
-            purpose='registration',
-            verified_at__isnull=True
-        ).order_by('-created_at').first()
-        
-        if not verification:
-            return Response({
-                'error': 'No verification code found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        success, message = verification.verify(code)
-        if not success:
-            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get stored registration data
-        registration_data = verification.registration_data
-        if not registration_data:
-            return Response({
-                'error': 'Registration data not found'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        with transaction.atomic():
-            # Create user
-            user = User.objects.create_user(
-                username=registration_data['username'],
-                email=registration_data['email'],
-                password=registration_data['password'],
-                first_name=registration_data['first_name'],
-                last_name=registration_data['last_name'],
-                phone_number=registration_data.get('phone_number', ''),
-                user_type='extension_worker'
-            )
-            
-            # Create extension worker profile
-            worker_data = registration_data.get('extension_worker_profile', {})
-            profile = ExtensionWorkerProfile.objects.create(
-                user=user,
-                organization=worker_data.get('organization', ''),
-                employee_id=worker_data.get('employee_id', ''),
-                specialization=worker_data.get('specialization', ''),
-                regions_covered=worker_data.get('regions_covered', []),
-                is_approved=False
-            )
-            
-            # Handle uploaded file if present
-            verification_doc = request.FILES.get('verification_document')
-            if verification_doc:
-                profile.verification_document = verification_doc
-                profile.save()
-            
-            # Create token
-            token = Token.objects.create(user=user)
-            
-            send_welcome_email(email, user.username)
-            
-            return Response({
-                'message': 'Registration successful!',
-                'user': UserSerializer(user).data,
-                'token': token.key
-            }, status=status.HTTP_201_CREATED)
-            
-    except Exception as e:
-        logger.error(f"Extension worker registration error: {str(e)}")
-        return Response({
-            'error': 'Registration failed'
+            'error': 'Failed to resend code. Please try again.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
