@@ -495,3 +495,53 @@ class VerificationCode(models.Model):
         count = expired.count()
         expired.delete()
         return count
+
+class Notification(models.Model):
+    NOTIFICATION_TYPES = (
+        ('like', 'Like'),
+        ('comment', 'Comment'),
+    )
+    
+    recipient = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name='notifications'
+    )
+    sender = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE,
+        related_name='sent_notifications'
+    )
+    notification_type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
+    post = models.ForeignKey(
+        'CommunityPost', 
+        on_delete=models.CASCADE, 
+        related_name='notifications'
+    )
+    comment = models.ForeignKey(
+        'PostComment', 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True,
+        related_name='notifications'
+    )
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['recipient', '-created_at']),
+            models.Index(fields=['recipient', 'is_read']),
+        ]
+    
+    def __str__(self):
+        return f"{self.sender.username} {self.notification_type} on {self.post.id}"
+    
+    @property
+    def message(self):
+        if self.notification_type == 'like':
+            return f"{self.sender.username} liked your post"
+        elif self.notification_type == 'comment':
+            return f"{self.sender.username} commented on your post"
+        return "New notification"

@@ -138,4 +138,11 @@ urlpatterns = [
     path("tester/", 
          views.tester, 
          name="tester"),
+
+     # Notification URLs
+    path('api/notifications/', community_views.get_notifications, name='get-notifications'),
+    path('api/notifications/unread-count/', community_views.get_unread_count, name='unread-count'),
+    path('api/notifications/<int:notification_id>/read/', community_views.mark_notification_read, name='mark-notification-read'),
+    path('api/notifications/mark-all-read/', community_views.mark_all_notifications_read, name='mark-all-read'),
+    path('api/notifications/<int:notification_id>/delete/', community_views.delete_notification, name='delete-notification'),
 ]

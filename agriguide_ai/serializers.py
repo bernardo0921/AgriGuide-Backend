@@ -2,8 +2,8 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
-from .models import User, FarmerProfile, ExtensionWorkerProfile, CommunityPost, PostLike, PostComment, VerificationCode
-from .models import Tutorial
+from .models import User, FarmerProfile, ExtensionWorkerProfile, CommunityPost, PostLike, PostComment
+from .models import Tutorial, Notification
 import os
 
 
@@ -518,3 +518,38 @@ class ResendCodeSerializer(serializers.Serializer):
     purpose = serializers.ChoiceField(
         choices=['registration', 'login']
     )
+
+class NotificationSerializer(serializers.ModelSerializer):
+    sender_name = serializers.CharField(source='sender.username', read_only=True)
+    sender_profile_picture = serializers.SerializerMethodField()
+    post_id = serializers.IntegerField(source='post.id', read_only=True)
+    post_content_preview = serializers.SerializerMethodField()
+    comment_content = serializers.CharField(source='comment.content', read_only=True)
+    time_ago = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Notification
+        fields = [
+            'id', 'notification_type', 'sender_name', 'sender_profile_picture',
+            'post_id', 'post_content_preview', 'comment_content', 
+            'is_read', 'created_at', 'time_ago', 'message'
+        ]
+        read_only_fields = ['id', 'created_at', 'message']
+    
+    def get_sender_profile_picture(self, obj):
+        if hasattr(obj.sender, 'userprofile') and obj.sender.userprofile.profile_picture:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.sender.userprofile.profile_picture.url)
+        return None
+    
+    def get_post_content_preview(self, obj):
+        # Return first 50 characters of post content
+        if obj.post:
+            content = obj.post.content
+            return content[:50] + '...' if len(content) > 50 else content
+        return ""
+    
+    def get_time_ago(self, obj):
+        from django.utils.timesince import timesince
+        return timesince(obj.created_at) + " ago"
