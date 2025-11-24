@@ -1,4 +1,4 @@
-# twofa_views.py - Create this new file for 2FA views
+# twofa_views.py - Create this new file for 2FA views - FIXED
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -16,6 +16,7 @@ from .serializers import (
 )
 from .email_utils import send_verification_email, send_welcome_email
 import logging
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ def request_verification_code(request):
     serializer = RequestVerificationSerializer(data=request.data)
     
     if not serializer.is_valid():
+        logger.error(f"Validation error: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     email = serializer.validated_data['email']
@@ -54,18 +56,25 @@ def request_verification_code(request):
             # Add type-specific fields
             user_type = serializer.validated_data.get('user_type')
             if user_type == 'farmer':
+                # Convert farm_size to string for JSON storage
+                farm_size = serializer.validated_data.get('farm_size')
+                farm_size_str = str(farm_size) if farm_size else '0'
+                
                 registration_data['farmer_profile'] = {
-                    'farm_name': serializer.validated_data.get('farm_name'),
-                    'farm_size': str(serializer.validated_data.get('farm_size', '')),
-                    'location': serializer.validated_data.get('location'),
-                    'region': serializer.validated_data.get('region'),
+                    'farm_name': serializer.validated_data.get('farm_name', ''),
+                    'farm_size': farm_size_str,
+                    'location': serializer.validated_data.get('location', ''),
+                    'region': serializer.validated_data.get('region', ''),
                     'crops_grown': serializer.validated_data.get('crops_grown', []),
+                    'farming_method': serializer.validated_data.get('farming_method', 'conventional'),
+                    'years_of_experience': serializer.validated_data.get('years_of_experience', 0),
                 }
             elif user_type == 'extension_worker':
                 registration_data['extension_worker_profile'] = {
-                    'organization': serializer.validated_data.get('organization'),
-                    'specialization': serializer.validated_data.get('specialization'),
-                    'years_of_experience': serializer.validated_data.get('years_of_experience'),
+                    'organization': serializer.validated_data.get('organization', ''),
+                    'employee_id': serializer.validated_data.get('employee_id', ''),
+                    'specialization': serializer.validated_data.get('specialization', ''),
+                    'regions_covered': serializer.validated_data.get('regions_covered', []),
                 }
         
         # Create verification code
@@ -80,6 +89,7 @@ def request_verification_code(request):
         email_sent = send_verification_email(email, verification.code, purpose)
         
         if not email_sent:
+            logger.error(f"Failed to send email to {email}")
             return Response({
                 'error': 'Failed to send verification email. Please try again.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -95,14 +105,15 @@ def request_verification_code(request):
         
     except ValueError as e:
         # Rate limit exceeded
+        logger.warning(f"Rate limit exceeded for {email}: {str(e)}")
         return Response({
             'error': str(e)
         }, status=status.HTTP_429_TOO_MANY_REQUESTS)
     
     except Exception as e:
-        logger.error(f"Error creating verification code: {str(e)}")
+        logger.error(f"Error creating verification code: {str(e)}", exc_info=True)
         return Response({
-            'error': 'An error occurred. Please try again.'
+            'error': f'An error occurred: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

@@ -14,29 +14,43 @@ from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
 import os
-from pathlib import Path
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load environment variables from .env file (for local development)
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# ==================== SECURITY SETTINGS ====================
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-43@ixa45=t^c5v7yfmmrg2tkql4!apm01q6w$8c3@s^wzkbz^')
 
-load_dotenv(os.path.join(BASE_DIR, '.env'))
-
-# Now you can access environment variables
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-# In settings.py, find ALLOWED_HOSTS and replace with:
-# In settings.py, find ALLOWED_HOSTS and replace with:
-ALLOWED_HOSTS = ["192.168.100.7", "localhost", ".onrender.com"]
-# Application definition
+# Allowed hosts
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '192.168.100.7',
+    '.onrender.com',
+    'agriguide-backend-79j2.onrender.com',
+]
+
+# Security settings for production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+# ==================== APPLICATION DEFINITION ====================
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -46,48 +60,26 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-
-#My installed apps
+    # Third-party apps
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
+    'storages',  # For S3 storage
+
+    # My apps
     'agriguide_ai',
-    # 'sslserver',
 ]
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',     
-]
-
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-    ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
-    ],
-    # 'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    # 'PAGE_SIZE': 20,
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
-    ],
-}
-
-
-# CORS settings
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    'https://agriguide-backend-79j2.onrender.com'
-    # Add your Flutter app's origin
 ]
 
 ROOT_URLCONF = 'backend_ai.urls'
@@ -95,10 +87,11 @@ ROOT_URLCONF = 'backend_ai.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates'),],
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
@@ -109,20 +102,20 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'backend_ai.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# ==================== DATABASE ====================
 
 DATABASES = {
     'default': dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600
+        conn_max_age=600,
+        conn_health_checks=True,
     )
 }
 
+# ==================== AUTHENTICATION ====================
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+# Custom user model
+AUTH_USER_MODEL = 'agriguide_ai.User'
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -143,20 +136,140 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Email configuration (for password reset, etc.)
+# ==================== REST FRAMEWORK ====================
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.MultiPartParser',
+        'rest_framework.parsers.FormParser',
+    ],
+    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
+}
+
+# ==================== CORS SETTINGS ====================
+
+# Allow all origins (for development)
+CORS_ALLOW_ALL_ORIGINS = True
+
+# For production, use specific origins:
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:3000",
+#     "https://agriguide-backend-79j2.onrender.com",
+#     "https://your-frontend-domain.com",
+# ]
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# ==================== EMAIL CONFIGURATION (2FA) ====================
+
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
-EMAIL_USE_TLS = True
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() == 'true'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+APP_NAME = os.environ.get('APP_NAME', 'AgriGuide')
 
+# Email timeout settings
+EMAIL_TIMEOUT = 30  # seconds
 
+# For development, you can use console backend to see emails in terminal:
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
+# ==================== AWS S3 CONFIGURATION ====================
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
+# AWS Credentials
+AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
+AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
+
+# S3 settings
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com' if AWS_STORAGE_BUCKET_NAME else None
+AWS_S3_OBJECT_PARAMETERS = {
+    'CacheControl': 'max-age=86400',  # 1 day cache
+}
+AWS_DEFAULT_ACL = None  # S3 bucket has ACLs disabled
+AWS_S3_FILE_OVERWRITE = False  # Don't overwrite files with same name
+AWS_QUERYSTRING_AUTH = False  # Don't add query parameter authentication
+AWS_S3_SIGNATURE_VERSION = 's3v4'
+
+# Use S3 for media files if credentials are provided
+if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_STORAGE_BUCKET_NAME:
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
+else:
+    # Fallback to local storage for development
+    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# ==================== STATIC FILES ====================
+
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),
+] if os.path.exists(os.path.join(BASE_DIR, 'static')) else []
+
+# Use WhiteNoise for static files
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# ==================== FILE UPLOAD SETTINGS ====================
+
+# Maximum upload sizes
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
+
+# Allowed file types
+ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.mkv', '.webm']
+ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+ALLOWED_DOCUMENT_EXTENSIONS = ['.pdf', '.doc', '.docx']
+
+# Maximum file sizes (in bytes)
+MAX_VIDEO_UPLOAD_SIZE = 100 * 1024 * 1024  # 100MB
+MAX_IMAGE_UPLOAD_SIZE = 10 * 1024 * 1024   # 10MB
+MAX_THUMBNAIL_UPLOAD_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_DOCUMENT_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+
+# ==================== GEMINI AI CONFIGURATION ====================
+
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+# ==================== INTERNATIONALIZATION ====================
 
 LANGUAGE_CODE = 'en-us'
 
@@ -166,70 +279,151 @@ USE_I18N = True
 
 USE_TZ = True
 
+# ==================== LOGGING ====================
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'WARNING',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'agriguide_ai': {
+            'handlers': ['console', 'file'] if not DEBUG else ['console'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+    },
+}
 
-# Media files (for profile pictures and documents)
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# Create logs directory if it doesn't exist
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+if not os.path.exists(LOGS_DIR):
+    os.makedirs(LOGS_DIR)
 
-# Static files
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+# ==================== DEFAULT PRIMARY KEY ====================
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ==================== CACHE CONFIGURATION ====================
 
-CORS_ALLOW_ALL_ORIGINS = True
-AUTH_USER_MODEL = 'agriguide_ai.User'
-# File upload settings (add these)
-# Maximum upload size for video files (100MB)
-DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
-
-# Allowed video file types
-ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.mkv', '.webm']
-ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
-
-# Maximum file sizes
-MAX_VIDEO_UPLOAD_SIZE = 100 * 1024 * 1024  # 100MB
-MAX_THUMBNAIL_UPLOAD_SIZE = 5 * 1024 * 1024  # 5MB
-# AWS S3 Configuration
-AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
-AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
-AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')  # Change to your region
-
-# S3 settings
-AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
-AWS_S3_OBJECT_PARAMETERS = {
-    'CacheControl': 'max-age=86400',  # 1 day cache
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'TIMEOUT': 300,  # 5 minutes
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000
+        }
+    }
 }
-AWS_DEFAULT_ACL = None  # S3 bucket has ACLs disabled - don't set ACLs
-AWS_S3_FILE_OVERWRITE = False  # Don't overwrite files with same name
-AWS_QUERYSTRING_AUTH = False  # Don't add query parameter authentication
 
-# Storage backends
-DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# ==================== SESSION CONFIGURATION ====================
 
-# Media files configuration (for user uploads)
-MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 1209600  # 2 weeks
+SESSION_SAVE_EVERY_REQUEST = False
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
 
-# Optional: Separate buckets for different file types
-# AWS_STORAGE_BUCKET_NAME_STATIC = 'your-static-bucket'
-# AWS_STORAGE_BUCKET_NAME_MEDIA = 'your-media-bucket'
+# ==================== CUSTOM SETTINGS ====================
 
+# Token expiry (for authentication tokens)
+TOKEN_EXPIRY_DAYS = 30
 
-# Email Configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')  # Your Gmail address
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')  # Your 16-character app password
-APP_NAME = os.getenv('APP_NAME', 'AgriGuide')
+# Verification code expiry (in minutes)
+VERIFICATION_CODE_EXPIRY_MINUTES = 5
+
+# Rate limiting for verification codes
+MAX_VERIFICATION_CODES_PER_PERIOD = 3
+VERIFICATION_CODE_RATE_LIMIT_PERIOD = 15  # minutes
+
+# Tutorial video settings
+MAX_TUTORIAL_DURATION_MINUTES = 30
+
+# Community post settings
+MAX_POST_LENGTH = 5000
+MAX_COMMENT_LENGTH = 1000
+
+# ==================== DEVELOPMENT SETTINGS ====================
+
+# For local development, you can override settings here
+if DEBUG:
+    # Use console email backend in development
+    # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    
+    # Disable some security features in development
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    
+    # More verbose logging
+    LOGGING['loggers']['agriguide_ai']['level'] = 'DEBUG'
+
+# ==================== ENVIRONMENT VARIABLE CHECKS ====================
+
+# Check for required environment variables in production
+if not DEBUG:
+    required_vars = [
+        'SECRET_KEY',
+        'DATABASE_URL',
+        'EMAIL_HOST_USER',
+        'EMAIL_HOST_PASSWORD',
+        'GEMINI_API_KEY',
+    ]
+    
+    missing_vars = [var for var in required_vars if not os.environ.get(var)]
+    
+    if missing_vars:
+        import warnings
+        warnings.warn(
+            f"⚠️  Missing required environment variables: {', '.join(missing_vars)}",
+            RuntimeWarning
+        )
+
+# ==================== PRINT CONFIGURATION STATUS ====================
+
+if DEBUG:
+    print("\n" + "="*60)
+    print("🚀 Django Configuration Status")
+    print("="*60)
+    print(f"📍 Environment: {'Development' if DEBUG else 'Production'}")
+    print(f"🗄️  Database: {DATABASES['default']['ENGINE'].split('.')[-1]}")
+    print(f"📧 Email Backend: {EMAIL_BACKEND.split('.')[-1]}")
+    print(f"📦 Media Storage: {'AWS S3' if 'S3' in DEFAULT_FILE_STORAGE else 'Local'}")
+    print(f"🔑 Gemini API: {'✅ Configured' if GEMINI_API_KEY else '❌ Not configured'}")
+    print(f"📨 Email Config: {'✅ Configured' if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD else '❌ Not configured'}")
+    print("="*60 + "\n")

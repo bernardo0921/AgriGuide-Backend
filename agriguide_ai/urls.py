@@ -1,4 +1,4 @@
-# agriguide_ai/urls.py - UPDATED WITH STREAMING CHAT ENDPOINT
+# agriguide_ai/urls.py - UPDATED WITH 2FA ENFORCEMENT
 from django.urls import path
 from . import views
 from . import auth_views
@@ -6,16 +6,38 @@ from . import community_views, lms_views, ai_tip_views, twofa_views
 from . import deep_link_views
 
 urlpatterns = [
-     # Authentication endpoints
-     path('api/auth/register/farmer/', 
-          auth_views.FarmerRegistrationView.as_view(), 
-          name='register_farmer'),
+     # ==================== 2FA AUTHENTICATION (PRIMARY) ====================
+     # These are the NEW endpoints that REQUIRE email verification
+     path('api/auth/request-verification/', 
+          twofa_views.request_verification_code, 
+          name='request-verification'),
+     path('api/auth/verify-and-register/', 
+          twofa_views.verify_code_and_register, 
+          name='verify-and-register'),
+     path('api/auth/verify-and-login/', 
+          twofa_views.verify_code_and_login, 
+          name='verify-and-login'),
+     path('api/auth/resend-code/', 
+          twofa_views.resend_verification_code, 
+          name='resend-code'),
+
+     # ==================== OLD AUTHENTICATION (DEPRECATED) ====================
+     # ⚠️ OPTION 1: Comment out to fully disable old registration
+     # path('api/auth/register/farmer/', 
+     #      auth_views.FarmerRegistrationView.as_view(), 
+     #      name='register_farmer'),
+     
+     # ⚠️ OPTION 2: Keep for extension workers (they need file upload)
      path('api/auth/register/extension-worker/', 
           auth_views.ExtensionWorkerRegistrationView.as_view(), 
           name='register_extension_worker'),
+     
+     # Login still works without 2FA (but you could add it)
      path('api/auth/login/', 
           auth_views.login_view, 
           name='login'),
+     
+     # ==================== PROFILE & TOKEN ====================
      path('api/auth/logout/', 
           auth_views.logout_view, 
           name='logout'),
@@ -37,13 +59,13 @@ urlpatterns = [
           lms_views.check_user_type, 
           name='check_user_type'),
 
-     # Chat endpoints
+     # ==================== CHAT ENDPOINTS ====================
      path('api/chat/', 
           views.chat_with_ai, 
           name='chat_with_ai'),
      path('api/chat-stream/', 
           views.chat_with_ai_stream, 
-          name='chat_with_ai_stream'),  # NEW: Streaming endpoint
+          name='chat_with_ai_stream'),
      path('api/chat/sessions/', 
           views.get_chat_sessions, 
           name='get_chat_sessions'),
@@ -60,12 +82,12 @@ urlpatterns = [
           views.test_connection, 
           name='test_connection'),
 
-     # AI Tip endpoint
+     # ==================== AI TIP ====================
      path('api/farming-tip/', 
           ai_tip_views.get_daily_farming_tip, 
           name='get_daily_farming_tip'),
           
-     # Community endpoints
+     # ==================== COMMUNITY ====================
      path('api/community/posts/', 
           community_views.CommunityPostListCreateView.as_view(), 
           name='community_posts'),
@@ -85,7 +107,7 @@ urlpatterns = [
           community_views.my_posts, 
           name='my_posts'),
 
-     # LMS/Tutorial endpoints
+     # ==================== LMS/TUTORIALS ====================
      path('api/tutorials/', 
           lms_views.TutorialListCreateView.as_view(), 
           name='tutorial_list_create'),
@@ -102,7 +124,7 @@ urlpatterns = [
           lms_views.tutorial_categories, 
           name='tutorial_categories'),
 
-     # Deep link endpoints
+     # ==================== DEEP LINKS ====================
      path('api/post/<int:post_id>/data/', 
           deep_link_views.post_deep_link_data, 
           name='post_deep_link_data'),
@@ -116,18 +138,13 @@ urlpatterns = [
           deep_link_views.track_share_analytics, 
           name='track_share'),
 
-     # Language endpoints
-     path('api/languages/', views.get_available_languages, name='get_languages'),
+     # ==================== LANGUAGE ====================
+     path('api/languages/', 
+          views.get_available_languages, 
+          name='get_languages'),
 
-
-     #connection tester
-     path("tester/", views.tester, name="tester"),
-
-      # 2FA Endpoints
-    path('api/auth/request-verification/', twofa_views.request_verification_code, name='request-verification'),
-    path('api/auth/verify-and-register/', twofa_views.verify_code_and_register, name='verify-and-register'),
-    path('api/auth/verify-and-login/', twofa_views.verify_code_and_login, name='verify-and-login'),
-    path('api/auth/resend-code/', twofa_views.resend_verification_code, name='resend-code'),
-
-
+     # ==================== CONNECTION TESTER ====================
+     path("tester/", 
+          views.tester, 
+          name="tester"),
 ]

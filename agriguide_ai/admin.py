@@ -2,7 +2,11 @@
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import CommunityPost, PostLike, PostComment, Tutorial
+from .models import CommunityPost, PostLike, PostComment, Tutorial, VerificationCode
+
+
+
+
 # Add this to your existing admin.py file
 @admin.register(Tutorial)
 class TutorialAdmin(admin.ModelAdmin):
@@ -57,6 +61,7 @@ from .models import (
     ChatMessage
 )
 
+admin.site.register(VerificationCode)
 
 
 @admin.register(CommunityPost)
