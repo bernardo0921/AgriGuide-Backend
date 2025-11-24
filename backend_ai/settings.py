@@ -397,8 +397,8 @@ if not DEBUG:
     required_vars = [
         'SECRET_KEY',
         'DATABASE_URL',
-        'EMAIL_HOST_USER',
-        'EMAIL_HOST_PASSWORD',
+        # 'EMAIL_HOST_USER',
+        # 'EMAIL_HOST_PASSWORD',
         'GEMINI_API_KEY',
     ]
     
