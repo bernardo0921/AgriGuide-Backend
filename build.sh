@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# exit on error
 set -o errexit
 
 pip install -r requirements.txt
-
 python manage.py collectstatic --no-input
-python manage.py migrate 
+
+# Fix the partial migration
+python manage.py fix_migrations
+
+# Run migrations
+python manage.py migrate
