@@ -1,9 +1,10 @@
-# agriguide_ai/urls.py - UPDATED WITH 2FA
+# agriguide_ai/urls.py - UPDATED WITH NOTIFICATION VIEWS
 from django.urls import path
 from . import views
 from . import auth_views
 from . import community_views, lms_views, ai_tip_views, twofa_views
 from . import deep_link_views
+from . import notification_views  # ADD THIS IMPORT
 
 urlpatterns = [
     # ==================== 2FA AUTHENTICATION (PRIMARY) ====================
@@ -129,20 +130,32 @@ urlpatterns = [
          deep_link_views.track_share_analytics, 
          name='track_share'),
 
+    # ==================== NOTIFICATIONS ====================
+    path('api/notifications/', 
+         notification_views.get_notifications, 
+         name='get-notifications'),
+    path('api/notifications/unread-count/', 
+         notification_views.get_unread_count, 
+         name='unread-count'),
+    path('api/notifications/<int:notification_id>/read/', 
+         notification_views.mark_notification_read, 
+         name='mark-notification-read'),
+    path('api/notifications/mark-all-read/', 
+         notification_views.mark_all_notifications_read, 
+         name='mark-all-read'),
+    path('api/notifications/<int:notification_id>/delete/', 
+         notification_views.delete_notification, 
+         name='delete-notification'),
+    path('api/notifications/delete-all/', 
+         notification_views.delete_all_notifications, 
+         name='delete-all-notifications'),
+
     # ==================== LANGUAGE ====================
     path('api/languages/', 
          views.get_available_languages, 
          name='get_languages'),
-
     # ==================== CONNECTION TESTER ====================
     path("tester/", 
          views.tester, 
          name="tester"),
-
-     # Notification URLs
-    path('api/notifications/', community_views.get_notifications, name='get-notifications'),
-    path('api/notifications/unread-count/', community_views.get_unread_count, name='unread-count'),
-    path('api/notifications/<int:notification_id>/read/', community_views.mark_notification_read, name='mark-notification-read'),
-    path('api/notifications/mark-all-read/', community_views.mark_all_notifications_read, name='mark-all-read'),
-    path('api/notifications/<int:notification_id>/delete/', community_views.delete_notification, name='delete-notification'),
 ]
