@@ -496,7 +496,6 @@ class VerificationCode(models.Model):
         expired.delete()
         return count
 
-class Notification(models.Model):
     NOTIFICATION_TYPES = (
         ('like', 'Like'),
         ('comment', 'Comment'),

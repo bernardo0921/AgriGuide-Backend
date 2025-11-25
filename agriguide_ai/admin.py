@@ -6,8 +6,7 @@ from .models import (CommunityPost,
                      PostLike, 
                      PostComment, 
                      Tutorial, 
-                     VerificationCode, 
-                     Notification,)
+                     VerificationCode)
 
 
 
@@ -163,11 +162,3 @@ admin.site.register(FarmerProfile)
 admin.site.register(ExtensionWorkerProfile)
 admin.site.register(ChatSession)
 admin.site.register(ChatMessage)
-
-
-@admin.register(Notification)
-class NotificationAdmin(admin.ModelAdmin):
-    list_display = ['recipient', 'sender', 'notification_type', 'is_read', 'created_at']
-    list_filter = ['notification_type', 'is_read', 'created_at']
-    search_fields = ['recipient__username', 'sender__username']
-    date_hierarchy = 'created_at'
