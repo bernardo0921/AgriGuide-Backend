@@ -2,7 +2,12 @@
 from django.urls import path
 from . import views
 from . import auth_views
-from . import community_views, lms_views, ai_tip_views, twofa_views, test_view
+from . import (community_views, 
+               lms_views, 
+               ai_tip_views, 
+               twofa_views, 
+               #test_view
+               )
 from . import deep_link_views
 from . import notification_views  # ADD THIS IMPORT
 

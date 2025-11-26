@@ -3,3 +3,4 @@ tt.py
 tt1.py
 agriguide_ai/test_view.py
 templates/create_superuser.html
+virtualenv
