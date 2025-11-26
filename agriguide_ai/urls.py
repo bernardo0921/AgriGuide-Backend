@@ -7,10 +7,10 @@ from . import deep_link_views
 from . import notification_views  # ADD THIS IMPORT
 
 urlpatterns = [
-     # tester
-     path('create-superuser-temp/', 
-          test_view.create_superuser_view, 
-          name='create_superuser'),
+     # # tester
+     # path('create-superuser-temp/', 
+     #      test_view.create_superuser_view, 
+     #      name='create_superuser'),
     
     # ==================== 2FA AUTHENTICATION (PRIMARY) ====================
     path('api/auth/request-verification/', 
