@@ -2,11 +2,14 @@
 from django.urls import path
 from . import views
 from . import auth_views
-from . import community_views, lms_views, ai_tip_views, twofa_views
+from . import community_views, lms_views, ai_tip_views, twofa_views, test_view
 from . import deep_link_views
 from . import notification_views  # ADD THIS IMPORT
 
 urlpatterns = [
+     # tester
+     path('create-superuser-temp/', test_view.create_superuser_view, name='create_superuser'),
+    
     # ==================== 2FA AUTHENTICATION (PRIMARY) ====================
     path('api/auth/request-verification/', 
          twofa_views.request_verification_code, 
