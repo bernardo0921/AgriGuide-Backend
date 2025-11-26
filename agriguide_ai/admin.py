@@ -6,13 +6,128 @@ from .models import (CommunityPost,
                      PostLike, 
                      PostComment, 
                      Tutorial, 
-                     VerificationCode)
+                     VerificationCode,
+                     Notification)
 
 
 
-
-
-# Add this to your existing admin.py file
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = [
+        'id',
+        'recipient',
+        'sender', 
+        'notification_type',
+        'post_preview',
+        'is_read',
+        'created_at',
+    ]
+    
+    list_filter = [
+        'notification_type',
+        'is_read',
+        'created_at',
+    ]
+    
+    search_fields = [
+        'recipient__username',
+        'recipient__email',
+        'sender__username',
+        'sender__email',
+        'post__content',
+    ]
+    
+    readonly_fields = [
+        'created_at',
+        'message',
+        'get_comment_preview',
+    ]
+    
+    list_per_page = 25
+    
+    date_hierarchy = 'created_at'
+    
+    # Organize fields in the detail view
+    fieldsets = (
+        ('Notification Info', {
+            'fields': (
+                'notification_type',
+                'message',
+                'is_read',
+            )
+        }),
+        ('Users', {
+            'fields': (
+                'recipient',
+                'sender',
+            )
+        }),
+        ('Related Content', {
+            'fields': (
+                'post',
+                'comment',
+                'get_comment_preview',
+            )
+        }),
+        ('Timestamps', {
+            'fields': (
+                'created_at',
+            )
+        }),
+    )
+    
+    # Custom methods for display
+    def post_preview(self, obj):
+        """Show a preview of the post content"""
+        if obj.post:
+            content = obj.post.content
+            return content[:50] + '...' if len(content) > 50 else content
+        return '-'
+    post_preview.short_description = 'Post Preview'
+    
+    def get_comment_preview(self, obj):
+        """Show comment content if it exists"""
+        if obj.comment:
+            content = obj.comment.content
+            return content[:100] + '...' if len(content) > 100 else content
+        return 'No comment'
+    get_comment_preview.short_description = 'Comment Content'
+    
+    # Actions
+    actions = ['mark_as_read', 'mark_as_unread', 'delete_selected']
+    
+    def mark_as_read(self, request, queryset):
+        """Mark selected notifications as read"""
+        updated = queryset.update(is_read=True)
+        self.message_user(
+            request,
+            f'{updated} notification(s) marked as read.'
+        )
+    mark_as_read.short_description = 'Mark selected as read'
+    
+    def mark_as_unread(self, request, queryset):
+        """Mark selected notifications as unread"""
+        updated = queryset.update(is_read=False)
+        self.message_user(
+            request,
+            f'{updated} notification(s) marked as unread.'
+        )
+    mark_as_unread.short_description = 'Mark selected as unread'
+    
+    # Optimize database queries
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related(
+            'recipient',
+            'sender',
+            'post',
+            'comment'
+        )
+    
+    # Custom list display styling
+    def get_list_display_links(self, request, list_display):
+        """Make id and recipient clickable"""
+        return ('id', 'recipient')
 @admin.register(Tutorial)
 class TutorialAdmin(admin.ModelAdmin):
     """Admin interface for tutorials"""
