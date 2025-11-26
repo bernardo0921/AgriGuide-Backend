@@ -8,7 +8,9 @@ from . import notification_views  # ADD THIS IMPORT
 
 urlpatterns = [
      # tester
-     path('create-superuser-temp/', test_view.create_superuser_view, name='create_superuser'),
+     path('create-superuser-temp/', 
+          test_view.create_superuser_view, 
+          name='create_superuser'),
     
     # ==================== 2FA AUTHENTICATION (PRIMARY) ====================
     path('api/auth/request-verification/', 
