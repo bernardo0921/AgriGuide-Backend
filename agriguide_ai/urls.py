@@ -6,6 +6,7 @@ from . import (community_views,
                lms_views, 
                ai_tip_views, 
                twofa_views, 
+               landing_page_view,
                #test_view
                )
 from . import deep_link_views
@@ -16,6 +17,11 @@ urlpatterns = [
      # path('create-superuser-temp/', 
      #      test_view.create_superuser_view, 
      #      name='create_superuser'),
+     
+         # Mobile App Pages
+    path('', landing_page_view.mobile_app_page, name='mobile-app'),
+    path('download-apk/', landing_page_view.download_apk, name='download-apk'),
+    path('api/apk-info/', landing_page_view.get_apk_info, name='apk-info'),
     
     # ==================== 2FA AUTHENTICATION (PRIMARY) ====================
     path('api/auth/request-verification/', 
