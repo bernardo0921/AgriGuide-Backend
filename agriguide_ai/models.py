@@ -1,4 +1,4 @@
-# Updated models.py with S3 storage backends
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.core.validators import RegexValidator
@@ -38,7 +38,7 @@ class User(AbstractUser):
         unique=True
     )
     profile_picture = models.ImageField(
-        storage=ProfilePictureStorage(),  # Use S3 storage
+        storage=ProfilePictureStorage(),
         blank=True,
         null=True,
     )
@@ -69,7 +69,6 @@ class User(AbstractUser):
         try:
             super().save(*args, **kwargs)
         except Exception as e:
-            # Log the error and re-raise
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error saving user {self.username}: {str(e)}")
@@ -83,42 +82,20 @@ class User(AbstractUser):
 
 
 class FarmerProfile(models.Model):
-    """Profile for farmers"""
+    """SIMPLIFIED Profile for farmers - ONLY BASIC INFO"""
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
         related_name='farmer_profile'
     )
-    farm_name = models.CharField(max_length=200, blank=True)
-    farm_size = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        help_text="Farm size in acres"
-    )
-    location = models.CharField(max_length=255, blank=True)
-    region = models.CharField(max_length=100, blank=True)
-    crops_grown = models.TextField(
-        blank=True,
-        help_text="Comma-separated list of crops"
-    )
-    farming_method = models.CharField(
-        max_length=50,
-        choices=(
-            ('organic', 'Organic'),
-            ('conventional', 'Conventional'),
-            ('mixed', 'Mixed'),
-        ),
-        default='conventional'
-    )
-    years_of_experience = models.IntegerField(blank=True, null=True)
+    # ALL FARM FIELDS REMOVED - Farmers only need basic User info now
+    # If you need to store any farmer-specific data in future, add it here
     
     class Meta:
         db_table = 'farmer_profiles'
     
     def __str__(self):
-        return f"{self.user.username}'s Farm Profile"
+        return f"{self.user.username}'s Farmer Profile"
 
 
 class ExtensionWorkerProfile(models.Model):
@@ -138,11 +115,11 @@ class ExtensionWorkerProfile(models.Model):
         help_text="Comma-separated list of regions"
     )
     verification_document = models.FileField(
-        storage=VerificationDocumentStorage(),  # Use S3 storage
+        storage=VerificationDocumentStorage(),
         blank=True,
         null=True
     )
-    is_approved = models.BooleanField(default=False)
+    is_approved = models.BooleanField(default=False)  # KEY FIELD FOR BLOCKING
     approved_at = models.DateTimeField(blank=True, null=True)
     
     class Meta:
@@ -182,7 +159,7 @@ class CommunityPost(models.Model):
         help_text="Post content"
     )
     image = models.ImageField(
-        storage=CommunityPostImageStorage(),  # Use S3 storage
+        storage=CommunityPostImageStorage(),
         blank=True,
         null=True,
         help_text="Optional image for the post"
@@ -204,12 +181,10 @@ class CommunityPost(models.Model):
     
     @property
     def likes_count(self):
-        """Get the number of likes for this post"""
         return self.likes.count()
     
     @property
     def comments_count(self):
-        """Get the number of comments for this post"""
         return self.comments.count()
 
 
@@ -296,11 +271,11 @@ class Tutorial(models.Model):
         help_text="Tutorial category"
     )
     video = models.FileField(
-        storage=TutorialVideoStorage(),  # Use S3 storage
+        storage=TutorialVideoStorage(),
         help_text="Tutorial video file"
     )
     thumbnail = models.ImageField(
-        storage=TutorialThumbnailStorage(),  # Use S3 storage
+        storage=TutorialThumbnailStorage(),
         blank=True,
         null=True,
         help_text="Optional thumbnail image for the video"
@@ -325,16 +300,16 @@ class Tutorial(models.Model):
         return f"{self.title} by {self.uploader.username}"
     
     def increment_view_count(self):
-        """Increment the view count for this tutorial"""
         self.view_count += 1
         self.save(update_fields=['view_count'])
     
     @property
     def uploader_name(self):
-        """Get uploader's full name or username"""
         if self.uploader.first_name and self.uploader.last_name:
             return f"{self.uploader.first_name} {self.uploader.last_name}"
         return self.uploader.username
+
+
 class ChatMessage(models.Model):
     """Store individual chat messages with optional images"""
     session = models.ForeignKey(
@@ -348,7 +323,7 @@ class ChatMessage(models.Model):
     )
     message = models.TextField()
     image = models.ImageField(
-        storage=ChatImageStorage(),  # S3 storage for chat images
+        storage=ChatImageStorage(),
         blank=True,
         null=True,
         help_text="Optional image attachment"
@@ -364,10 +339,10 @@ class ChatMessage(models.Model):
     
     @property
     def image_url(self):
-        """Get S3 URL for image"""
         if self.image:
             return self.image.url
         return None
+
 
 class VerificationCode(models.Model):
     """Store temporary 2FA verification codes"""
@@ -382,21 +357,17 @@ class VerificationCode(models.Model):
     code = models.CharField(max_length=6)
     purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES)
     
-    # Store registration data temporarily (for registration flow)
     registration_data = models.JSONField(null=True, blank=True)
     
-    # Attempt tracking
     attempts = models.IntegerField(default=0)
     max_attempts = models.IntegerField(default=3)
     
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     verified_at = models.DateTimeField(null=True, blank=True)
     
-    # Rate limiting
     last_sent_at = models.DateTimeField(auto_now_add=True)
-    send_count = models.IntegerField(default=1)  # Track how many codes sent
+    send_count = models.IntegerField(default=1)
     
     class Meta:
         ordering = ['-created_at']
@@ -410,16 +381,10 @@ class VerificationCode(models.Model):
     
     @classmethod
     def generate_code(cls):
-        """Generate a random 6-digit code"""
         return ''.join([str(random.randint(0, 9)) for _ in range(6)])
     
     @classmethod
     def create_verification(cls, email, purpose, registration_data=None, expiry_minutes=5):
-        """
-        Create a new verification code
-        Returns (verification_code, created) tuple
-        """
-        # Check rate limiting - max 3 codes in 15 minutes
         fifteen_min_ago = timezone.now() - timedelta(minutes=15)
         recent_codes = cls.objects.filter(
             email=email,
@@ -430,14 +395,12 @@ class VerificationCode(models.Model):
         if recent_codes >= 3:
             raise ValueError("Too many verification attempts. Please try again in 15 minutes.")
         
-        # Delete any existing unverified codes for this email/purpose
         cls.objects.filter(
             email=email,
             purpose=purpose,
             verified_at__isnull=True
         ).delete()
         
-        # Create new verification code
         code = cls.generate_code()
         expires_at = timezone.now() + timedelta(minutes=expiry_minutes)
         
@@ -452,23 +415,15 @@ class VerificationCode(models.Model):
         return verification, True
     
     def is_valid(self):
-        """Check if code is still valid"""
         if self.verified_at:
-            return False  # Already used
-        
+            return False
         if timezone.now() > self.expires_at:
-            return False  # Expired
-        
+            return False
         if self.attempts >= self.max_attempts:
-            return False  # Too many attempts
-        
+            return False
         return True
     
     def verify(self, submitted_code):
-        """
-        Verify the submitted code
-        Returns (success, message) tuple
-        """
         self.attempts += 1
         self.save()
         
@@ -490,11 +445,11 @@ class VerificationCode(models.Model):
     
     @classmethod
     def cleanup_expired(cls):
-        """Delete expired codes (run this periodically via cron/celery)"""
         expired = cls.objects.filter(expires_at__lt=timezone.now())
         count = expired.count()
         expired.delete()
         return count
+
 
 class Notification(models.Model):
     NOTIFICATION_TYPES = (
