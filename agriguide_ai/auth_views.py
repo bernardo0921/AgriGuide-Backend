@@ -1,9 +1,10 @@
-# auth_views.py - UPDATED with proper imports
+# auth_views.py - UPDATED WITH APPROVAL MIDDLEWARE
+
 from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser  # ADD THIS IMPORT
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import logout
 from .models import User
@@ -14,24 +15,22 @@ from .serializers import (
     UserSerializer,
     ChangePasswordSerializer
 )
+from .permissions import IsApprovedOrFarmer  # NEW IMPORT
 
 
 class FarmerRegistrationView(generics.CreateAPIView):
-    """Register a new farmer"""
+    """Register a new farmer - SIMPLIFIED"""
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = FarmerRegistrationSerializer
-    parser_classes = [MultiPartParser, FormParser, JSONParser]  # ADD THIS
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         farmer_profile = serializer.save()
 
-        # Extract the related user from the FarmerProfile
         user = farmer_profile.user
-
-        # Create token for the user
         token, created = Token.objects.get_or_create(user=user)
 
         return Response({
@@ -46,17 +45,14 @@ class ExtensionWorkerRegistrationView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = ExtensionWorkerRegistrationSerializer
-    parser_classes = [MultiPartParser, FormParser, JSONParser]  # ADD THIS
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         worker_profile = serializer.save()
 
-        # Extract the related user from the ExtensionWorkerProfile
         user = worker_profile.user
-
-        # Create token for the user
         token, created = Token.objects.get_or_create(user=user)
 
         return Response({
@@ -70,11 +66,29 @@ class ExtensionWorkerRegistrationView(generics.CreateAPIView):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
-    """Login endpoint"""
+    """
+    Login endpoint (OLD - kept for backward compatibility)
+    🔒 NOW CHECKS EXTENSION WORKER APPROVAL
+    """
     serializer = LoginSerializer(data=request.data, context={'request': request})
     
     if serializer.is_valid():
         user = serializer.validated_data['user']
+        
+        # 🔒 CHECK IF EXTENSION WORKER IS APPROVED
+        if user.user_type == 'extension_worker':
+            try:
+                worker_profile = user.extension_worker_profile
+                if not worker_profile.is_approved:
+                    return Response({
+                        'error': 'Your account is pending approval. Please wait for admin approval.',
+                        'error_code': 'ACCOUNT_PENDING_APPROVAL'
+                    }, status=status.HTTP_403_FORBIDDEN)
+            except:
+                return Response({
+                    'error': 'Extension worker profile not found.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
         token, created = Token.objects.get_or_create(user=user)
         
         return Response({
@@ -118,47 +132,23 @@ def logout_view(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsApprovedOrFarmer])  # 🔒 APPROVAL CHECK
 def profile_view(request):
-    """Get current user profile"""
+    """Get current user profile - BLOCKS UNAPPROVED EXTENSION WORKERS"""
     serializer = UserSerializer(request.user, context={'request': request})
     return Response(serializer.data)
 
 
 @api_view(['PUT', 'PATCH'])
-@permission_classes([IsAuthenticated])
-@parser_classes([MultiPartParser, FormParser, JSONParser])  # NOW THIS WILL WORK
+@permission_classes([IsAuthenticated, IsApprovedOrFarmer])  # 🔒 APPROVAL CHECK
+@parser_classes([MultiPartParser, FormParser, JSONParser])
 def update_profile_view(request):
     """
-    Update current user profile
-    Supports both JSON and multipart/form-data (for file uploads)
+    Update current user profile - BLOCKS UNAPPROVED EXTENSION WORKERS
+    SIMPLIFIED - farmers don't have farm fields anymore
     """
     user = request.user
-    
-    # Handle both multipart and JSON data
     data = request.data.copy()
-    
-    # Parse nested farmer_profile data if it exists
-    if 'farmer_profile' not in data and any(key.startswith('farmer_profile.') for key in data.keys()):
-        farmer_profile_data = {}
-        farmer_fields = [
-            'farm_name', 'farm_size', 'location', 'region',
-            'crops_grown', 'farming_method', 'years_of_experience'
-        ]
-        
-        for field in farmer_fields:
-            field_key = f'farmer_profile.{field}'
-            if field_key in data:
-                # Handle both string and list values
-                value = data[field_key]
-                if isinstance(value, list):
-                    farmer_profile_data[field] = value[0]
-                else:
-                    farmer_profile_data[field] = value
-                del data[field_key]
-        
-        if farmer_profile_data:
-            data['farmer_profile'] = farmer_profile_data
     
     serializer = UserSerializer(user, data=data, partial=True, context={'request': request})
     
@@ -178,9 +168,9 @@ def update_profile_view(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsApprovedOrFarmer])  # 🔒 APPROVAL CHECK
 def change_password_view(request):
-    """Change user password"""
+    """Change user password - BLOCKS UNAPPROVED EXTENSION WORKERS"""
     serializer = ChangePasswordSerializer(
         data=request.data,
         context={'request': request}
@@ -191,7 +181,6 @@ def change_password_view(request):
         user.set_password(serializer.validated_data['new_password'])
         user.save()
         
-        # Update token
         Token.objects.filter(user=user).delete()
         token = Token.objects.create(user=user)
         
@@ -206,8 +195,23 @@ def change_password_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def verify_token(request):
-    """Verify if token is valid"""
+    """
+    Verify if token is valid
+    🔒 RETURNS APPROVAL STATUS
+    """
+    user_data = UserSerializer(request.user, context={'request': request}).data
+    
+    # Add approval status check for extension workers
+    is_approved = True
+    if request.user.user_type == 'extension_worker':
+        try:
+            is_approved = request.user.extension_worker_profile.is_approved
+        except:
+            is_approved = False
+    
     return Response({
         'valid': True,
-        'user': UserSerializer(request.user, context={'request': request}).data
+        'user': user_data,
+        'is_approved': is_approved,
+        'requires_approval': request.user.user_type == 'extension_worker'
     })
