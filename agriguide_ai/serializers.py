@@ -1,4 +1,4 @@
-# Updated serializers.py - S3 URLs are now automatically handled
+# Updated serializers.py - SIMPLIFIED FARMER REGISTRATION
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
@@ -8,12 +8,10 @@ import os
 
 
 class FarmerProfileSerializer(serializers.ModelSerializer):
+    """SIMPLIFIED - No fields needed anymore"""
     class Meta:
         model = FarmerProfile
-        fields = [
-            'farm_name', 'farm_size', 'location', 'region',
-            'crops_grown', 'farming_method', 'years_of_experience'
-        ]
+        fields = []  # Empty - just creates the relation
 
 
 class ExtensionWorkerProfileSerializer(serializers.ModelSerializer):
@@ -26,15 +24,14 @@ class ExtensionWorkerProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['is_approved']
 
 
-# serializers.py - UPDATED UserSerializer
-
 class UserSerializer(serializers.ModelSerializer):
-    farmer_profile = FarmerProfileSerializer(required=False)
+    farmer_profile = FarmerProfileSerializer(required=False, read_only=True)
     extension_worker_profile = ExtensionWorkerProfileSerializer(
         required=False, 
         read_only=True
     )
-    profile_picture_url = serializers.SerializerMethodField()  # ADD THIS
+    profile_picture_url = serializers.SerializerMethodField()
+    is_approved = serializers.SerializerMethodField()  # NEW: For extension workers
     
     class Meta:
         model = User
@@ -42,55 +39,50 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'first_name', 'last_name',
             'phone_number', 'user_type', 'profile_picture', 'profile_picture_url',
             'is_verified', 'created_at', 'farmer_profile',
-            'extension_worker_profile'
+            'extension_worker_profile', 'is_approved'  # NEW
         ]
         read_only_fields = [
             'id', 'created_at', 'is_verified', 
             'user_type', 'username'
         ]
     
-    def get_profile_picture_url(self, obj):  # ADD THIS METHOD
-        """Returns S3 URL automatically"""
+    def get_profile_picture_url(self, obj):
         if obj.profile_picture:
             return obj.profile_picture.url
         return None
+    
+    def get_is_approved(self, obj):
+        """Check if extension worker is approved"""
+        if obj.user_type == 'extension_worker':
+            try:
+                return obj.extension_worker_profile.is_approved
+            except ExtensionWorkerProfile.DoesNotExist:
+                return False
+        return True  # Farmers are always "approved"
 
     def update(self, instance, validated_data):
-        farmer_profile_data = validated_data.pop('farmer_profile', None)
-        
-        # Update user fields
+        # Update user fields only
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-        
-        # Update farmer profile if data provided and user is farmer
-        if farmer_profile_data and instance.user_type == 'farmer':
-            try:
-                profile_instance = instance.farmer_profile
-            except FarmerProfile.DoesNotExist:
-                profile_instance = FarmerProfile.objects.create(user=instance)
-
-            for attr, value in farmer_profile_data.items():
-                setattr(profile_instance, attr, value)
-            profile_instance.save()
-        
         return instance
 
+
 class FarmerRegistrationSerializer(serializers.ModelSerializer):
+    """SIMPLIFIED - Only basic user fields"""
     password = serializers.CharField(
         write_only=True,
         required=True,
         validators=[validate_password]
     )
     password_confirm = serializers.CharField(write_only=True, required=True)
-    farmer_profile = FarmerProfileSerializer(required=True)
     
     class Meta:
         model = User
         fields = [
             'username', 'email', 'password', 'password_confirm',
             'first_name', 'last_name', 'phone_number',
-            'profile_picture', 'farmer_profile'
+            'profile_picture'  # Optional
         ]
     
     def validate(self, attrs):
@@ -102,7 +94,6 @@ class FarmerRegistrationSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         validated_data.pop('password_confirm')
-        farmer_profile_data = validated_data.pop('farmer_profile')
         
         user = User.objects.create_user(
             username=validated_data['username'],
@@ -115,7 +106,8 @@ class FarmerRegistrationSerializer(serializers.ModelSerializer):
             profile_picture=validated_data.get('profile_picture')
         )
         
-        farmer_profile = FarmerProfile.objects.create(user=user, **farmer_profile_data)
+        # Create empty farmer profile (just for relation)
+        farmer_profile = FarmerProfile.objects.create(user=user)
         
         return farmer_profile
 
@@ -255,7 +247,6 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class CommunityPostSerializer(serializers.ModelSerializer):
-    """Serializer for community posts - S3 URLs handled automatically"""
     author_name = serializers.SerializerMethodField()
     author_username = serializers.CharField(source='author.username', read_only=True)
     author_profile_picture = serializers.SerializerMethodField()
@@ -278,7 +269,6 @@ class CommunityPostSerializer(serializers.ModelSerializer):
         return obj.author.username
     
     def get_author_profile_picture(self, obj):
-        """Returns S3 URL automatically"""
         if obj.author.profile_picture:
             return obj.author.profile_picture.url
         return None
@@ -305,7 +295,6 @@ class CommunityPostSerializer(serializers.ModelSerializer):
 
 
 class PostCommentSerializer(serializers.ModelSerializer):
-    """Serializer for post comments"""
     user_name = serializers.SerializerMethodField()
     user_username = serializers.CharField(source='user.username', read_only=True)
     user_profile_picture = serializers.SerializerMethodField()
@@ -324,16 +313,12 @@ class PostCommentSerializer(serializers.ModelSerializer):
         return obj.user.username
     
     def get_user_profile_picture(self, obj):
-        """Returns S3 URL automatically"""
         if obj.user.profile_picture:
             return obj.user.profile_picture.url
         return None
 
 
-# Add this to your serializers.py - Updated TutorialSerializer
-
 class TutorialSerializer(serializers.ModelSerializer):
-    """Serializer for Tutorial model - S3 URLs handled automatically"""
     uploader_name = serializers.SerializerMethodField()
     uploader_id = serializers.IntegerField(source='uploader.id', read_only=True)
     uploader_profile_picture = serializers.SerializerMethodField()
@@ -353,39 +338,32 @@ class TutorialSerializer(serializers.ModelSerializer):
         return obj.uploader_name
     
     def get_uploader_profile_picture(self, obj):
-        """Returns S3 URL automatically"""
         if obj.uploader.profile_picture:
             return obj.uploader.profile_picture.url
         return None
     
     def get_video_url(self, obj):
-        """Returns S3 URL automatically"""
         if obj.video:
             return obj.video.url
         return None
     
     def get_thumbnail_url(self, obj):
-        """Returns S3 URL automatically"""
         if obj.thumbnail:
             return obj.thumbnail.url
         return None
     
     def validate_category(self, value):
-        """FIXED: Accept both lowercase and original format"""
-        # List of valid categories in lowercase
         valid_categories = [
             'crops', 'livestock', 'irrigation', 'pest_control',
             'soil_management', 'harvesting', 'post_harvest',
             'farm_equipment', 'marketing', 'other'
         ]
         
-        # Convert to lowercase for validation
         if value.lower() not in valid_categories:
             raise serializers.ValidationError(
                 f"Invalid category. Must be one of: {', '.join(valid_categories)}"
             )
         
-        # Return lowercase version for consistency
         return value.lower()
     
     def validate_video(self, value):
@@ -437,14 +415,14 @@ class TutorialSerializer(serializers.ModelSerializer):
 
 
 class RequestVerificationSerializer(serializers.Serializer):
-    """Request a verification code"""
+    """SIMPLIFIED Request verification - only basic user fields for farmers"""
     email = serializers.EmailField()
     purpose = serializers.ChoiceField(
         choices=['registration', 'login'],
         default='registration'
     )
     
-    # For registration, include user data
+    # Basic user fields
     username = serializers.CharField(required=False)
     password = serializers.CharField(write_only=True, required=False)
     password_confirm = serializers.CharField(write_only=True, required=False)
@@ -457,48 +435,15 @@ class RequestVerificationSerializer(serializers.Serializer):
         required=False
     )
     
-    # Farmer-specific fields
-    farm_name = serializers.CharField(required=False)
-    farm_size = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
-    location = serializers.CharField(required=False)
-    region = serializers.CharField(required=False)
-    crops_grown = serializers.ListField(child=serializers.CharField(), required=False)
-    farming_method = serializers.CharField(required=False)
-    years_of_experience = serializers.IntegerField(required=False)
-    
-    # Extension worker fields
+    # Extension worker fields (unchanged)
     organization = serializers.CharField(required=False)
     employee_id = serializers.CharField(required=False)
     specialization = serializers.CharField(required=False)
     regions_covered = serializers.ListField(child=serializers.CharField(), required=False)
     verification_document = serializers.FileField(required=False)
-    
-    
 
-    def validate(self, data):
-        print("🔍 STARTING VALIDATION")
-        print(f"📦 Data received: {data}")
-        
-        from django.contrib.auth.password_validation import validate_password
-        from django.core.exceptions import ValidationError as DjangoValidationError
-        
-        purpose = data.get('purpose')
-        email = data.get('email')
-        
-        print(f"✉️ Email: {email}, Purpose: {purpose}")
-        
-        if purpose == 'registration':
-            print("🔍 Checking if email exists...")
-            from .models import User
-            if User.objects.filter(email=email).exists():
-                print("❌ Email already exists!")
-                raise serializers.ValidationError({
-                    'email': 'This email is already registered'
-                })
-            
-            print("✅ Email is unique")
+
 class VerifyCodeSerializer(serializers.Serializer):
-    """Verify a code"""
     email = serializers.EmailField()
     code = serializers.CharField(max_length=6, min_length=6)
     purpose = serializers.ChoiceField(
@@ -506,18 +451,17 @@ class VerifyCodeSerializer(serializers.Serializer):
     )
     
     def validate_code(self, value):
-        """Ensure code is 6 digits"""
         if not value.isdigit():
             raise serializers.ValidationError("Code must be 6 digits")
         return value
 
 
 class ResendCodeSerializer(serializers.Serializer):
-    """Resend verification code"""
     email = serializers.EmailField()
     purpose = serializers.ChoiceField(
         choices=['registration', 'login']
     )
+
 
 class NotificationSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(source='sender.username', read_only=True)
@@ -544,7 +488,6 @@ class NotificationSerializer(serializers.ModelSerializer):
         return None
     
     def get_post_content_preview(self, obj):
-        # Return first 50 characters of post content
         if obj.post:
             content = obj.post.content
             return content[:50] + '...' if len(content) > 50 else content
