@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,15 +19,8 @@
         }
         .logo {
             width: 100px;
-            height: 100px;
+            height: auto;
             margin-bottom: 20px;
-            /* Placeholder for logo.png */
-            background-color: #8bc34a;
-            border-radius: 50%;
-            display: inline-block;
-            line-height: 100px;
-            font-size: 18px;
-            font-weight: bold;
         }
         h1 {
             font-size: 2.5em;
@@ -45,7 +39,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="logo">Logo</div>
+        <img src="{% static 'images/logo.png' %}" alt="AgriGuide Logo" class="logo">
         <h1>Lost in the Fields?</h1>
         <p>It seems you've wandered off the beaten path. The page you're looking for isn't here.</p>
         <a href="/">Back to the Farm</a>
