@@ -22,6 +22,10 @@ urlpatterns = [
     path('', landing_page_view.mobile_app_page, name='mobile-app'),
     path('download-apk/', landing_page_view.download_apk, name='download-apk'),
     path('api/apk-info/', landing_page_view.get_apk_info, name='apk-info'),
+    path('legal/', landing_page_view.legal_page, name='legal'),
+    path('terms-of-service/', landing_page_view.terms_of_service, name='terms_of_service'),
+    path('privacy-policy/', landing_page_view.privacy_policy, name='privacy_policy'),
+    path('help-and-feedback/', landing_page_view.help_and_feedback, name='help_and_feedback'),
     
     # ==================== 2FA AUTHENTICATION (PRIMARY) ====================
     path('api/auth/request-verification/', 

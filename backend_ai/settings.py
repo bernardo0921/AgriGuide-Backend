@@ -33,7 +33,7 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
-    '192.168.100.7',
+    '192.168.100.21',
     '.onrender.com',
     'agriguide-backend-79j2.onrender.com',
 ]

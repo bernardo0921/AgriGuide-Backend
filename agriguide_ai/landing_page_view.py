@@ -47,3 +47,31 @@ def get_apk_info(request):
     }
     
     return JsonResponse(apk_info)
+
+
+def legal_page(request):
+    """
+    Render the legal page with terms of service, privacy policy, etc.
+    """
+    return render(request, 'legal.html')
+
+
+def terms_of_service(request):
+    """
+    Render the terms of service page.
+    """
+    return render(request, 'terms_of_service.html')
+
+
+def privacy_policy(request):
+    """
+    Render the privacy policy page.
+    """
+    return render(request, 'privacy_policy.html')
+
+
+def help_and_feedback(request):
+    """
+    Render the help and feedback page.
+    """
+    return render(request, 'help_and_feedback.html')
